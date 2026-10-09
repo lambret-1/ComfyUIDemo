@@ -155,13 +155,15 @@ enum NodeDatabase {
     /// 加载所有节点数据库（从Bundle读取JSON）
     static func loadIfNeeded() {
         guard !isLoaded else { return }
-        isLoaded = true
 
         var all: [String: NodeDefinition] = [:]
         var byCategory: [NodeCategory: [NodeDefinition]] = [:]
+        var loadedCount = 0
 
         for (fileName, category) in databaseFiles {
-            guard let url = Bundle.main.url(forResource: fileName, withExtension: "json", subdirectory: "NodeDatabases") else {
+            // XcodeGen将resources目录下的文件直接打包到bundle根目录，不保留子目录结构
+            guard let url = Bundle.main.url(forResource: fileName, withExtension: "json") else {
+                print("[节点库] 未找到文件: \(fileName).json")
                 continue
             }
             do {
@@ -176,13 +178,17 @@ enum NodeDatabase {
                 for node in nodes {
                     all[node.type] = node
                 }
+                loadedCount += 1
+                print("[节点库] 已加载 \(fileName): \(nodes.count)个节点")
             } catch {
-                continue
+                print("[节点库] 解码失败 \(fileName).json: \(error)")
             }
         }
 
         allNodes = all
         nodesByCategory = byCategory
+        isLoaded = true
+        print("[节点库] 加载完成: 共\(loadedCount)个分类, \(all.count)个节点")
     }
 
     /// 根据节点类型名查找定义
