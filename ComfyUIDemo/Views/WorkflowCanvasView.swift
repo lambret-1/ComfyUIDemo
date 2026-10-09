@@ -27,15 +27,6 @@ struct WorkflowCanvasView: View {
     @State private var editingText: String = ""
     /// 是否显示单参数编辑弹窗
     @State private var showWidgetEditor: Bool = false
-    /// 当前正在拖动的滑块（nodeId + index）
-    @State private var trackingSlider: (nodeId: Int, index: Int)?
-    /// 手势类型（确保每次拖动开始时正确判断，结束时完全重置）
-    private enum DragMode {
-        case none
-        case pan
-        case slider(nodeId: Int, index: Int)
-    }
-    @State private var dragMode: DragMode = .none
 
     var body: some View {
         GeometryReader { geometry in
@@ -66,50 +57,34 @@ struct WorkflowCanvasView: View {
                     SimultaneousGesture(
                         DragGesture()
                             .onChanged { value in
-                                // 每次拖动开始时（dragMode为.none）判断起点位置
-                                if case .none = dragMode {
-                                    let worldX = (value.startLocation.x - offset.x) / zoom
-                                    let worldY = (value.startLocation.y - offset.y) / zoom
-                                    let worldPoint = CGPoint(x: worldX, y: worldY)
-                                    if let slider = hitTestSlider(point: worldPoint) {
-                                        dragMode = .slider(nodeId: slider.nodeId, index: slider.index)
-                                        trackingSlider = (slider.nodeId, slider.index)
-                                    } else {
-                                        dragMode = .pan
-                                    }
-                                }
+                                // 每次都用startLocation判断起点（startLocation在整个手势中不变）
+                                // 不依赖任何持久状态，彻底避免状态重置问题
+                                let startWorldX = (value.startLocation.x - offset.x) / zoom
+                                let startWorldY = (value.startLocation.y - offset.y) / zoom
+                                let startPoint = CGPoint(x: startWorldX, y: startWorldY)
 
-                                switch dragMode {
-                                case .slider(let nodeId, let index):
-                                    // 拖动滑块，根据世界坐标X更新数值
-                                    let worldX = (value.location.x - offset.x) / zoom
-                                    updateSliderValue(nodeId: nodeId, index: index, worldX: worldX)
-                                case .pan:
-                                    // 平移画布
+                                if let slider = hitTestSlider(point: startPoint) {
+                                    // 起点在滑块区域 → 整个手势用于拖动滑块
+                                    let currentWorldX = (value.location.x - offset.x) / zoom
+                                    updateSliderValue(nodeId: slider.nodeId, index: slider.index, worldX: currentWorldX)
+                                } else {
+                                    // 起点不在滑块区域 → 平移画布
                                     offset = CGPoint(
                                         x: lastOffset.x + value.translation.width,
                                         y: lastOffset.y + value.translation.height
                                     )
-                                case .none:
-                                    break
                                 }
                             }
                             .onEnded { _ in
-                                // 完全重置所有拖动状态，确保下次拖动能重新判断
-                                dragMode = .none
-                                trackingSlider = nil
                                 lastOffset = offset
                             },
                         MagnificationGesture()
                             .onChanged { value in
-                                // 滑块拖动时忽略缩放手势，避免冲突
-                                if case .none = dragMode {
-                                    zoom = CanvasMath.clamp(
-                                        lastZoom * value,
-                                        min: CanvasMath.minZoom,
-                                        max: CanvasMath.maxZoom
-                                    )
-                                }
+                                zoom = CanvasMath.clamp(
+                                    lastZoom * value,
+                                    min: CanvasMath.minZoom,
+                                    max: CanvasMath.maxZoom
+                                )
                             }
                             .onEnded { _ in
                                 lastZoom = zoom
