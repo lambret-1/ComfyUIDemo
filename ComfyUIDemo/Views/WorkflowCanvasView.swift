@@ -33,7 +33,6 @@ struct WorkflowCanvasView: View {
                 // 绘制背景网格（在屏幕坐标系，不随画布变换）
                 drawGrid(context: context, viewSize: size)
 
-                context.save()
                 // 高性能：在 Canvas 内部执行矩阵变换，避免外层 scaleEffect 触发离屏渲染
                 context.translateBy(x: offset.x, y: offset.y)
                 context.scaleBy(x: zoom, y: zoom)
@@ -43,8 +42,6 @@ struct WorkflowCanvasView: View {
 
                 // 再绘制节点（上层）
                 drawNodes(context: context)
-
-                context.restore()
             }
             .gesture(
                 // 同时识别拖拽与缩放手势，互不干扰
