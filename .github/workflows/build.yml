@@ -30,7 +30,8 @@ jobs:
 
       - name: 构建归档
         run: |
-          set -o pipefail
+          mkdir -p ./build
+          set +e
           xcodebuild archive \
             -scheme ComfyUIDemo \
             -destination 'generic/platform=iOS' \
@@ -40,19 +41,30 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" 2>&1 | tee ./build/xcodebuild.log
-          echo "✅ 构建成功"
+          EXIT_CODE=${PIPESTATUS[0]}
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "✅ 构建成功"
+          else
+            echo "❌ 构建失败，退出码: $EXIT_CODE"
+          fi
+          exit $EXIT_CODE
         # 构建失败时打印所有错误行和警告行，便于定位问题
       - name: 打印构建错误日志
         if: failure()
         run: |
+          LOG_FILE="./build/xcodebuild.log"
+          if [ ! -f "$LOG_FILE" ]; then
+            echo "⚠️ 日志文件不存在: $LOG_FILE"
+            exit 0
+          fi
           echo "==================== 错误行 (error:) ===================="
-          grep -n "error:" ./build/xcodebuild.log || echo "（未找到 error: 行）"
+          grep -n "error:" "$LOG_FILE" || echo "（未找到 error: 行）"
           echo ""
           echo "==================== 警告行 (warning:) ===================="
-          grep -n "warning:" ./build/xcodebuild.log || echo "（未找到 warning: 行）"
+          grep -n "warning:" "$LOG_FILE" || echo "（未找到 warning: 行）"
           echo ""
-          echo "==================== 最后50行日志 ===================="
-          tail -50 ./build/xcodebuild.log || echo "（日志文件不存在）"
+          echo "==================== 最后80行日志 ===================="
+          tail -80 "$LOG_FILE"
 
       - name: 读取版本号
         id: version
