@@ -1,0 +1,53 @@
+name: 构建未签名 IPA
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 构建 iOS 未签名 IPA
+    runs-on: macos-14
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 构建归档
+        run: |
+          xcodebuild archive \
+            -scheme ComfyUIDemo \
+            -destination 'generic/platform=iOS' \
+            -archivePath ./build/ComfyUIDemo.xcarchive \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+
+      - name: 导出未签名 IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath ./build/ComfyUIDemo.xcarchive \
+            -exportPath ./output \
+            -exportOptionsPlist exportOptions.plist \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 验证 IPA 产物
+        run: |
+          ls -lh ./output/*.ipa
+          echo "IPA 大小: $(du -h ./output/*.ipa | cut -f1)"
+
+      - name: 上传 IPA 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComfyUIDemo-unsigned
+          path: ./output/*.ipa
+          retention-days: 30

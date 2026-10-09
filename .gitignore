@@ -1,0 +1,28 @@
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+!project.yml
+*.xcuserstate
+*.xcuserdatad/
+xcschemes/
+
+# 构建产物
+output/
+*.ipa
+*.xcarchive
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# 日志
+*.log
+
+# 临时文件
+*.tmp
+*.bak
