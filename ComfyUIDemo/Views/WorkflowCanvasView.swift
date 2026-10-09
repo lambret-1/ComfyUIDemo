@@ -801,7 +801,7 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 选中节点的可交互控件层（直接在文本框内编辑）
 
-    /// 选中节点的可交互控件视图（与Canvas绘制的控件布局一致）
+    /// 选中节点的可交互控件视图（使用VStack相对布局，避免绝对定位导致的漂移）
     private func editableControls(for node: NodeModel) -> some View {
         let rect = CGRect(origin: .zero, size: node.nodeSize)
         let headerHeight = min(30, rect.height * 0.4)
@@ -819,15 +819,14 @@ struct WorkflowCanvasView: View {
             leftInset = baseLeftInset * scale
             rightInset = baseRightInset * scale
         }
-        let widgetX = leftInset
         let widgetWidth = rect.width - leftInset - rightInset
         let labelWidth: CGFloat = 48
         let rowHeight: CGFloat = 22
 
-        return ZStack(alignment: .topLeading) {
+        return VStack(alignment: .leading, spacing: 0) {
+            Spacer().frame(height: widgetTop)
             if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
                 ForEach(Array(widgets.enumerated()), id: \.offset) { index, widget in
-                    let controlY = widgetTop + CGFloat(index) * rowHeight
                     let controlWidth = widgetWidth - labelWidth - 4
                     let rawName = index < node.widgetNames.count ? node.widgetNames[index] : "参数\(index + 1)"
                     let paramName = SlotLocalization.localized(for: rawName)
@@ -837,32 +836,34 @@ struct WorkflowCanvasView: View {
                         Text(paramName)
                             .font(.system(size: 8))
                             .foregroundColor(.secondary)
-                            .frame(width: labelWidth - 2, alignment: .trailing)
+                            .frame(width: labelWidth - 2, height: 16, alignment: .trailing)
                             .lineLimit(1)
 
                         Spacer().frame(width: 4)
 
-                        // 控件区域
+                        // 控件区域（从workflow获取最新值，避免显示旧值）
                         editableWidgetControl(widget: widget, index: index, nodeId: node.id,
                                               controlWidth: controlWidth)
                     }
-                    .frame(width: widgetWidth, height: 16, alignment: .leading)
-                    .position(x: widgetX + widgetWidth / 2, y: controlY + 8)
+                    .frame(width: widgetWidth, height: rowHeight, alignment: .leading)
                 }
             }
+            Spacer()
         }
-        .frame(width: rect.width, height: rect.height)
+        .padding(.leading, leftInset)
+        .padding(.trailing, rightInset)
+        .frame(width: rect.width, height: rect.height, alignment: .topLeading)
         .contentShape(Rectangle())
         .onTapGesture { }
     }
 
-    /// 单个可交互控件（TextField/Toggle/Slider）
+    /// 单个可交互控件（TextField/Toggle/Slider），get从workflow获取最新值
     private func editableWidgetControl(widget: WidgetValue, index: Int, nodeId: Int, controlWidth: CGFloat) -> some View {
         Group {
             switch widget.widgetKind {
             case .toggle:
                 Toggle("", isOn: Binding(
-                    get: { widget.boolValue },
+                    get: { currentWidgetValue(nodeId: nodeId, index: index)?.boolValue ?? false },
                     set: { newValue in
                         if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
                             workflow.nodes[nodeIndex].widgetsValues?[index] = .bool(newValue)
@@ -870,13 +871,13 @@ struct WorkflowCanvasView: View {
                     }
                 ))
                 .labelsHidden()
-                .frame(width: 28)
+                .frame(width: 28, height: 16)
 
             case .number:
                 HStack(spacing: 6) {
                     // 数字输入框
                     TextField("", text: Binding(
-                        get: { widget.displayString },
+                        get: { currentWidgetValue(nodeId: nodeId, index: index)?.displayString ?? "" },
                         set: { newValue in
                             if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
                                 let original = workflow.nodes[nodeIndex].widgetsValues?[index]
@@ -902,11 +903,14 @@ struct WorkflowCanvasView: View {
                     if controlWidth > 74 {
                         Slider(value: Binding(
                             get: {
-                                switch widget {
-                                case .int(let v): return Double(v)
-                                case .double(let v): return v
-                                default: return 0
+                                if let v = currentWidgetValue(nodeId: nodeId, index: index) {
+                                    switch v {
+                                    case .int(let val): return Double(val)
+                                    case .double(let val): return val
+                                    default: return 0
+                                    }
                                 }
+                                return 0
                             },
                             set: { newValue in
                                 if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
@@ -925,7 +929,7 @@ struct WorkflowCanvasView: View {
 
             case .text:
                 TextField("", text: Binding(
-                    get: { widget.displayString },
+                    get: { currentWidgetValue(nodeId: nodeId, index: index)?.displayString ?? "" },
                     set: { newValue in
                         if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
                             workflow.nodes[nodeIndex].widgetsValues?[index] = .string(newValue)
@@ -939,6 +943,14 @@ struct WorkflowCanvasView: View {
                 .truncationMode(.tail)
             }
         }
+    }
+
+    /// 从workflow获取当前最新的控件值（避免使用传入的widget副本导致显示旧值）
+    private func currentWidgetValue(nodeId: Int, index: Int) -> WidgetValue? {
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }),
+              let widgets = workflow.nodes[nodeIndex].widgetsValues,
+              index < widgets.count else { return nil }
+        return widgets[index]
     }
 }
 
