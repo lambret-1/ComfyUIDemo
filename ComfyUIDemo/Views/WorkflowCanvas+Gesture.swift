@@ -76,21 +76,18 @@ extension WorkflowCanvasView {
                 return
             }
 
-            // 节点拖动优先：起点在节点可拖动区域即进入节点拖动模式
-            // （包含控件区域，解决"节点内容区不能自由拖动"问题）
+            // 节点拖动：起点在节点标题栏即进入节点拖动模式（仅标题栏可拖）
             if let node = hitTestNodeDraggableArea(point: startPoint) {
-                // 例外：起点在滑块区域 且 水平拖动明显大于垂直拖动 → 滑块模式
-                let isHorizontal = abs(value.translation.width) > abs(value.translation.height) * 1.5
-                if isHorizontal, hitTestSlider(point: startPoint) != nil {
-                    dragMode = .slider
-                } else {
-                    dragMode = .node
-                    draggingNodeId = node.id
-                    dragStartNodePos = node.position
-                    dragStartTouchPos = startPoint
-                }
+                dragMode = .node
+                draggingNodeId = node.id
+                dragStartNodePos = node.position
+                dragStartTouchPos = startPoint
+            } else if hitTestSlider(point: startPoint) != nil,
+                      abs(value.translation.width) > abs(value.translation.height) {
+                // 起点在滑块区域 且 水平拖动为主 → 滑块调值模式
+                dragMode = .slider
             } else {
-                // 起点不在节点区域 → 画布平移模式
+                // 起点不在标题栏/滑块 → 画布平移模式
                 dragMode = .canvas
             }
         }

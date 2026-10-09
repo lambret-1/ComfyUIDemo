@@ -6,25 +6,16 @@ extension WorkflowCanvasView {
 
     // MARK: - 节点拖动
 
-    /// 命中测试：判断点击位置是否在节点的可拖动区域
+    /// 命中测试：判断点击位置是否在节点标题栏（仅标题栏可拖动节点）
+    /// 手指碰到标题栏任意位置即可触发节点拖动，不再排除详情按钮/输出插槽
     func hitTestNodeDraggableArea(point: CGPoint) -> NodeModel? {
         for node in workflow.nodes {
             let rect = CGRect(origin: node.position, size: node.nodeSize)
-            guard rect.contains(point) else { continue }
-
             let headerHeight = min(30, rect.height * 0.4)
-
-            // 排除右上角详情按钮区域（与绘制尺寸保持一致：18 + 6）
-            let infoButtonSize: CGFloat = 18
-            let infoButtonX = rect.maxX - infoButtonSize - 6
-            let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
-            let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
-            if infoButtonRect.contains(point) { continue }
-
-            // 排除输出插槽区域（右侧边缘）
-            if hitTestOutputSlot(point: point) != nil { continue }
-
-            return node
+            let headerRect = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: headerHeight)
+            if headerRect.contains(point) {
+                return node
+            }
         }
         return nil
     }
