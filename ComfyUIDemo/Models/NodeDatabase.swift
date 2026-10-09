@@ -87,6 +87,34 @@ struct NodeDefinition: Codable, Hashable {
     let description: String?
     /// 所属分类（运行时赋值，不在JSON中）
     var category: NodeCategory = .primitive
+
+    // 自定义解码：category在JSON中不存在，使用默认值
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        colorHex = try container.decode(String.self, forKey: .colorHex)
+        inputs = try container.decode([NodeSlotDefinition].self, forKey: .inputs)
+        outputs = try container.decode([NodeSlotDefinition].self, forKey: .outputs)
+        parameters = try container.decode([NodeParameterDefinition].self, forKey: .parameters)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        category = .primitive // JSON中不包含category，由数据库加载时赋值
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(colorHex, forKey: .colorHex)
+        try container.encode(inputs, forKey: .inputs)
+        try container.encode(outputs, forKey: .outputs)
+        try container.encode(parameters, forKey: .parameters)
+        try container.encodeIfPresent(description, forKey: .description)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, displayName, colorHex, inputs, outputs, parameters, description
+    }
 }
 
 // MARK: - JSON数据库文件结构

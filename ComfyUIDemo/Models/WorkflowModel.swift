@@ -161,13 +161,25 @@ struct NodeModel: Codable, Identifiable, Hashable {
         title?.isEmpty == false ? title! : type
     }
 
-    /// 控件参数名列表（严格从WidgetNameRegistry预设映射获取，绝不从inputs插槽名借用）
+    /// 控件参数名列表（优先从NodeDatabase JSON定义获取，其次从WidgetNameRegistry预设映射获取，绝不从inputs插槽名借用）
     /// 注意：inputs.name是插槽名（用于画端口圆点和连线），widgets_values的参数名必须由节点类型预先定义
     var widgetNames: [String] {
         let widgetCount = widgetsValues?.count ?? 0
         guard widgetCount > 0 else { return [] }
 
-        // 1. 用节点类型的预设参数名映射（策略A：内置映射字典）
+        // 1. 优先从NodeDatabase JSON定义获取参数displayName（新数据库）
+        if let definition = NodeDatabase.definition(for: type) {
+            var names = [String](repeating: "", count: widgetCount)
+            for i in 0..<min(definition.parameters.count, widgetCount) {
+                names[i] = definition.parameters[i].displayName
+            }
+            for i in 0..<widgetCount where names[i].isEmpty {
+                names[i] = "参数\(i + 1)"
+            }
+            return names
+        }
+
+        // 2. 用节点类型的预设参数名映射（旧注册表，兼容）
         if let presetNames = WidgetNameRegistry.names(for: type) {
             var names = [String](repeating: "", count: widgetCount)
             for i in 0..<min(presetNames.count, widgetCount) {
@@ -179,7 +191,7 @@ struct NodeModel: Codable, Identifiable, Hashable {
             return names
         }
 
-        // 2. 兜底用序号
+        // 3. 兜底用序号
         return (0..<widgetCount).map { "参数\($0 + 1)" }
     }
 
