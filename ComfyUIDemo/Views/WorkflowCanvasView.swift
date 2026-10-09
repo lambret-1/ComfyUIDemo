@@ -141,11 +141,17 @@ struct WorkflowCanvasView: View {
         }
     }
 
-    /// 生成两点间的三次贝塞尔曲线路径
+    /// 生成两点间的三次贝塞尔曲线路径（ComfyUI风格，反向连线加大弯曲）
     private func bezierLinkPath(from: CGPoint, to: CGPoint) -> Path {
         Path { path in
             path.move(to: from)
-            let controlOffset = max(abs(to.x - from.x) * 0.5, 50)
+            let dx = to.x - from.x
+            // 基础水平偏移
+            var controlOffset = max(abs(dx) * 0.5, 50)
+            // 反向连线（目标在左侧）时加大偏移，避免线条过度兜圈
+            if dx < 0 {
+                controlOffset = max(controlOffset, 100)
+            }
             path.addCurve(
                 to: to,
                 control1: CGPoint(x: from.x + controlOffset, y: from.y),
@@ -179,14 +185,17 @@ struct WorkflowCanvasView: View {
                 .foregroundColor(.white)
             context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
 
-            // 控件区域
+            // 控件区域（居中，避开左右两侧插槽标签，左右各预留75pt）
             let widgetTop = headerRect.maxY + 6
             let widgetBottom = rect.maxY - 20
-            if let widgets = node.widgetsValues, !widgets.isEmpty {
+            let sideInset: CGFloat = 78
+            let widgetX = rect.minX + sideInset
+            let widgetWidth = max(40, rect.width - sideInset * 2)
+            if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
                 drawWidgets(
                     context: context,
                     widgets: widgets,
-                    in: CGRect(x: rect.minX + 8, y: widgetTop, width: rect.width - 16, height: widgetBottom - widgetTop)
+                    in: CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
                 )
             }
 
@@ -209,12 +218,12 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 控件绘制
 
-    /// 绘制节点内部控件（只读展示）
+    /// 绘制节点内部控件（只读展示，带序号标签）
     private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], in rect: CGRect) {
-        let rowHeight: CGFloat = 18
+        let rowHeight: CGFloat = 20
         var currentY = rect.minY
 
-        for (_, widget) in widgets.enumerated() {
+        for (index, widget) in widgets.enumerated() {
             guard currentY + rowHeight <= rect.maxY else {
                 if currentY < rect.maxY {
                     let moreText = Text("… 更多参数")
@@ -225,20 +234,32 @@ struct WorkflowCanvasView: View {
                 break
             }
 
-            let rowRect = CGRect(x: rect.minX, y: currentY, width: rect.width, height: rowHeight)
+            // 序号标签
+            let indexText = Text("\(index + 1)")
+                .font(.system(size: 8))
+                .foregroundColor(.secondary)
+            context.draw(indexText, at: CGPoint(x: rect.minX, y: currentY + rowHeight / 2), anchor: .leading)
+
+            let controlX = rect.minX + 16
+            let controlWidth = rect.width - 16
 
             switch widget.widgetKind {
             case .toggle:
-                let isOn = widget.displayString == "是"
-                let toggleRect = CGRect(x: rect.minX, y: currentY + 2, width: 32, height: 14)
+                let isOn = widget.boolValue
+                let toggleRect = CGRect(x: controlX, y: currentY + 3, width: 30, height: 14)
                 let toggleShape = RoundedRectangle(cornerRadius: 7)
                 context.fill(toggleShape.path(in: toggleRect), with: .color(isOn ? .green : .gray.opacity(0.4)))
                 let knobX = isOn ? toggleRect.maxX - 12 : toggleRect.minX + 2
                 let knobRect = CGRect(x: knobX, y: toggleRect.minY + 1, width: 12, height: 12)
                 context.fill(Path(ellipseIn: knobRect), with: .color(.white))
+                // 开关状态文字
+                let statusText = Text(isOn ? "开" : "关")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                context.draw(statusText, at: CGPoint(x: toggleRect.maxX + 6, y: currentY + rowHeight / 2), anchor: .leading)
 
             case .number:
-                let numRect = CGRect(x: rect.minX, y: currentY + 1, width: min(rect.width, 80), height: 16)
+                let numRect = CGRect(x: controlX, y: currentY + 2, width: min(controlWidth, 70), height: 16)
                 let numShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(numShape.path(in: numRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(numShape.path(in: numRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
@@ -249,11 +270,16 @@ struct WorkflowCanvasView: View {
 
             case .text:
                 let text = widget.displayString
-                let displayText = text.count > 24 ? String(text.prefix(24)) + "…" : text
+                let maxChars = max(8, Int(controlWidth / 6))
+                let displayText = text.count > maxChars ? String(text.prefix(maxChars)) + "…" : text
+                let textRect = CGRect(x: controlX, y: currentY + 2, width: min(controlWidth, CGFloat(maxChars) * 6 + 8), height: 16)
+                let textShape = RoundedRectangle(cornerRadius: 4)
+                context.fill(textShape.path(in: textRect), with: .color(Color(.tertiarySystemBackground)))
+                context.stroke(textShape.path(in: textRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
                 let textView = Text(displayText)
-                    .font(.system(size: 10))
+                    .font(.system(size: 9))
                     .foregroundColor(.primary)
-                context.draw(textView, in: rowRect)
+                context.draw(textView, in: textRect.insetBy(dx: 4, dy: 1))
             }
 
             currentY += rowHeight + 2

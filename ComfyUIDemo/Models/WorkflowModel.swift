@@ -272,6 +272,14 @@ struct LinkModel: Codable, Identifiable, Hashable {
 
 // MARK: - 分组模型
 
+/// 分组边界框对象格式（兼容某些ComfyUI版本）
+private struct BoundingObject: Codable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+}
+
 /// 分组模型，对应 ComfyUI groups 数组
 struct GroupModel: Codable, Identifiable, Hashable {
     /// 分组标题
@@ -320,7 +328,14 @@ struct GroupModel: Codable, Identifiable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         title = (try? container.decode(String.self, forKey: .title)) ?? "未命名分组"
-        bounding = (try? container.decode([Double].self, forKey: .bounding)) ?? [0, 0, 200, 200]
+        // 兼容 bounding 为数组 [x,y,w,h] 或对象 {x,y,width,height}
+        if let boundingArray = try? container.decode([Double].self, forKey: .bounding) {
+            bounding = boundingArray
+        } else if let boundingObj = try? container.decode(BoundingObject.self, forKey: .bounding) {
+            bounding = [boundingObj.x, boundingObj.y, boundingObj.width, boundingObj.height]
+        } else {
+            bounding = [0, 0, 200, 200]
+        }
         colorHex = try? container.decodeIfPresent(String.self, forKey: .color)
         fontSize = try? container.decodeIfPresent(Int.self, forKey: .fontSize)
     }
@@ -381,7 +396,7 @@ enum WidgetValue: Hashable, Codable {
                 return "\(Int(v))"
             }
             return String(format: "%.4g", v)
-        case .bool(let v): return v ? "是" : "否"
+        case .bool(let v): return v ? "开" : "关"
         case .null: return "空"
         }
     }
@@ -389,11 +404,24 @@ enum WidgetValue: Hashable, Codable {
     /// 控件类型推断
     var widgetKind: WidgetKind {
         switch self {
-        case .string: return .text
-        case .int: return .number
-        case .double: return .number
         case .bool: return .toggle
+        case .string(let v):
+            // 字符串形式的 true/false 也识别为开关
+            if v.lowercased() == "true" || v.lowercased() == "false" {
+                return .toggle
+            }
+            return .text
+        case .int, .double: return .number
         case .null: return .text
+        }
+    }
+
+    /// 布尔值判断（兼容字符串形式）
+    var boolValue: Bool {
+        switch self {
+        case .bool(let v): return v
+        case .string(let v): return v.lowercased() == "true"
+        default: return false
         }
     }
 
