@@ -813,7 +813,7 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 节点拖动
 
-    /// 命中测试：判断点击位置是否在节点的可拖动区域（节点上但不在控件区域、输出插槽、详情按钮）
+    /// 命中测试：判断点击位置是否在节点的可拖动区域（节点上但不在输出插槽、详情按钮；控件区域也可拖动，点击由onTapGesture处理）
     private func hitTestNodeDraggableArea(point: CGPoint) -> NodeModel? {
         for node in workflow.nodes {
             let rect = CGRect(origin: node.position, size: node.nodeSize)
@@ -831,27 +831,7 @@ struct WorkflowCanvasView: View {
             // 排除输出插槽区域（右侧边缘）
             if hitTestOutputSlot(point: point) != nil { continue }
 
-            // 排除控件区域
-            let widgetTop = rect.minY + headerHeight + 6
-            let widgetBottom = rect.maxY - 20
-            let baseLeftInset: CGFloat = 75
-            let baseRightInset: CGFloat = 85
-            let minWidgetWidth: CGFloat = 60
-            var leftInset = baseLeftInset
-            var rightInset = baseRightInset
-            if rect.width - leftInset - rightInset < minWidgetWidth {
-                let available = rect.width - minWidgetWidth
-                let totalInset = baseLeftInset + baseRightInset
-                let scale = min(1.0, available / totalInset)
-                leftInset = baseLeftInset * scale
-                rightInset = baseRightInset * scale
-            }
-            let widgetX = rect.minX + leftInset
-            let widgetWidth = rect.width - leftInset - rightInset
-            let widgetRect = CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
-            if widgetRect.contains(point) { continue }
-
-            // 在节点上但不在排除区域 → 可拖动
+            // 在节点上但不在排除区域 → 可拖动（控件区域也可拖动，点击编辑由onTapGesture处理）
             return node
         }
         return nil
