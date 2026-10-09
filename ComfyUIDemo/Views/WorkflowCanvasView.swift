@@ -49,9 +49,9 @@ struct WorkflowCanvasView: View {
     // MARK: - 性能优化状态
 
     /// 是否正在交互（拖动/平移中）：交互时降级渲染，跳过非必要文字
-    @State private var isInteracting: Bool = false
+    @State var isInteracting: Bool = false
     /// 节点渲染数据缓存：预计算尺寸、插槽位置、截断文本，避免每帧重复计算
-    @State private var renderCache: [Int: NodeRenderData] = [:]
+    @State var renderCache: [Int: NodeRenderData] = [:]
 
     // MARK: - 手势区分状态（点击 vs 拖动）
     /// 本次手势是否真正移动过（用于区分点击与拖动）
