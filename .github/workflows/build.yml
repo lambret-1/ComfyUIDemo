@@ -58,3 +58,37 @@ jobs:
           name: ComfyUIDemo-unsigned
           path: ./output/*.ipa
           retention-days: 30
+
+      - name: 读取版本号
+        id: version
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" ComfyUIDemo/Info.plist)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "当前版本: $VERSION"
+
+      - name: 创建 Git 标签
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "v$VERSION"
+          git push origin "v$VERSION" --force
+
+      - name: 创建 GitHub Release 并上传 IPA
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: ComfyUIDemo v${{ steps.version.outputs.version }}
+          body: |
+            ## ComfyUIDemo v${{ steps.version.outputs.version }}
+
+            未签名 IPA，适用于 TrollStore 侧载安装。
+
+            ### 安装方式
+            1. 下载下方 `ComfyUIDemo.ipa`
+            2. 在 TrollStore 中选择「Install IPA」
+            3. 选择下载的 IPA 文件完成安装
+          files: ./output/ComfyUIDemo.ipa
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
