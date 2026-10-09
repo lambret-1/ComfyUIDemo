@@ -76,15 +76,23 @@ struct WorkflowCanvasView: View {
                     let worldX = (location.x - offset.x) / zoom
                     let worldY = (location.y - offset.y) / zoom
                     let worldPoint = CGPoint(x: worldX, y: worldY)
-                    // 仅当点击节点右上角双圈圆点（详情入口）时才弹出详情页
+                    // 点击右上角双圈圆点或控件区域（文本框/滑块/开关）时弹出详情页
                     selectedNodeId = workflow.nodes.first { node in
                         let rect = CGRect(origin: node.position, size: node.nodeSize)
                         let headerHeight = min(30, rect.height * 0.4)
-                        let infoButtonSize: CGFloat = 24 // 扩大点击区域
+                        // 1. 右上角双圈圆点区域（扩大点击区域）
+                        let infoButtonSize: CGFloat = 24
                         let infoButtonX = rect.maxX - infoButtonSize - 3
                         let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
                         let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
-                        return infoButtonRect.contains(worldPoint)
+                        if infoButtonRect.contains(worldPoint) { return true }
+                        // 2. 控件区域（header下方，左右边距之间）
+                        let widgetTop = rect.minY + headerHeight + 6
+                        let widgetBottom = rect.maxY - 20
+                        let leftInset: CGFloat = 75
+                        let rightInset: CGFloat = 85
+                        let widgetRect = CGRect(x: rect.minX + leftInset, y: widgetTop, width: rect.width - leftInset - rightInset, height: widgetBottom - widgetTop)
+                        return widgetRect.contains(worldPoint)
                     }?.id
                 }
                 .sheet(item: Binding(
