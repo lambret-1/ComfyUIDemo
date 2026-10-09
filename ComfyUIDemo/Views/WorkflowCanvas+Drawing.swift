@@ -323,20 +323,35 @@ extension WorkflowCanvasView {
         }
     }
 
-    /// 文本截断
+    /// 文本截断（二分查找版，O(log n)次尺寸计算，解决超长文本O(n²)卡死问题）
     func truncatedText(_ text: String, font: UIFont, maxWidth: CGFloat) -> String {
-        let nsText = text as NSString
         let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let textWidth = nsText.size(withAttributes: attributes).width
-        if textWidth <= maxWidth { return text }
-        var result = text
-        while result.count > 1 {
-            result = String(result.dropLast())
-            let candidate = result + "…"
-            let candidateWidth = (candidate as NSString).size(withAttributes: attributes).width
-            if candidateWidth <= maxWidth { return candidate }
+        // 整个文本能放下直接返回
+        if (text as NSString).size(withAttributes: attributes).width <= maxWidth {
+            return text
         }
-        return "…"
+        // 超长文本预处理硬上限：先截取前500字，避免二分范围过大
+        let maxPreprocessLength = 500
+        let searchText = text.count > maxPreprocessLength
+            ? String(text.prefix(maxPreprocessLength))
+            : text
+
+        // 二分查找最大可显示字符数：prefix(k)+"…" 宽度 <= maxWidth
+        var low = 0
+        var high = searchText.count
+        var best = 0
+        while low <= high {
+            let mid = (low + high) / 2
+            let candidate = String(searchText.prefix(mid)) + "…"
+            let width = (candidate as NSString).size(withAttributes: attributes).width
+            if width <= maxWidth {
+                best = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return best > 0 ? String(searchText.prefix(best)) + "…" : "…"
     }
 
     /// 计算插槽在画布中的坐标
