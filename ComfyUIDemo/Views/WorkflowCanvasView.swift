@@ -184,7 +184,7 @@ struct WorkflowCanvasView: View {
                         editableControls(for: node)
                             .offset(x: node.position.x * zoom + offset.x,
                                     y: node.position.y * zoom + offset.y)
-                            .scaleEffect(zoom)
+                            .scaleEffect(zoom, anchor: .topLeading)
                     }
                 }
 
