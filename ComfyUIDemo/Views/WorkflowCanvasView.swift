@@ -243,12 +243,12 @@ struct WorkflowCanvasView: View {
             context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
 
             // 控件区域（居中，避开左右两侧插槽标签区域）
-            // 左侧输入插槽标签最大宽度100pt + 圆点5pt + 间距 = 115pt
-            // 右侧输出插槽标签最大宽度120pt + 圆点5pt + 间距 = 135pt
+            // 左侧输入插槽标签最大宽度75pt + 圆点5pt + 间距 = 90pt
+            // 右侧输出插槽标签最大宽度90pt + 圆点5pt + 间距 = 105pt
             let widgetTop = headerRect.maxY + 6
             let widgetBottom = rect.maxY - 20
-            let leftInset: CGFloat = 115
-            let rightInset: CGFloat = 135
+            let leftInset: CGFloat = 90
+            let rightInset: CGFloat = 105
             let widgetX = rect.minX + leftInset
             let widgetWidth = max(40, rect.width - leftInset - rightInset)
             if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
@@ -283,7 +283,7 @@ struct WorkflowCanvasView: View {
     private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], names: [String], in rect: CGRect) {
         let controlHeight: CGFloat = 16
         let rowSpacing: CGFloat = 6
-        let labelWidth: CGFloat = 55
+        let labelWidth: CGFloat = 48
         let labelFont = UIFont.systemFont(ofSize: 8)
         var currentY = rect.minY
 
@@ -324,8 +324,8 @@ struct WorkflowCanvasView: View {
             context.draw(labelText, at: CGPoint(x: rect.minX + labelWidth - 2, y: labelCenterY), anchor: .trailing)
 
             // 控件区域（右侧，剩余宽度）
-            let controlX = rect.minX + labelWidth + 6
-            let controlWidth = rect.width - labelWidth - 6
+            let controlX = rect.minX + labelWidth + 4
+            let controlWidth = rect.width - labelWidth - 4
             let controlY = currentY
 
             switch widget.widgetKind {
@@ -344,7 +344,7 @@ struct WorkflowCanvasView: View {
 
             case .number:
                 // 数字框 + 迷你滑块条
-                let numWidth: CGFloat = 52
+                let numWidth: CGFloat = 48
                 let numRect = CGRect(x: controlX, y: controlY, width: numWidth, height: controlHeight)
                 let numShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(numShape.path(in: numRect), with: .color(Color(.tertiarySystemBackground)))
@@ -368,14 +368,14 @@ struct WorkflowCanvasView: View {
 
             case .text:
                 let text = widget.displayString
-                let isShortEnum = text.count <= 20 && !text.contains(" ") && !text.contains("\n")
+                let isShortEnum = text.count <= 15 && !text.contains(" ") && !text.contains("\n") && controlWidth > 60
                 let textRect = CGRect(x: controlX, y: controlY, width: controlWidth, height: neededControlHeight)
                 let textShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(textShape.path(in: textRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(textShape.path(in: textRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
 
                 if isShortEnum {
-                    // 短文本：显示下拉箭头（模拟下拉菜单外观）
+                    // 短文本：显示下拉箭头（模拟下拉菜单外观），预留箭头空间
                     let textView = Text(text)
                         .font(.system(size: 8))
                         .foregroundColor(.primary)
@@ -406,9 +406,9 @@ struct WorkflowCanvasView: View {
     /// 绘制节点的输入/输出插槽及名称标签
     private func drawSlots(context: GraphicsContext, node: NodeModel) {
         let dotSize: CGFloat = 10
-        let labelFont = UIFont.systemFont(ofSize: 10)
+        let labelFont = UIFont.systemFont(ofSize: 9)
 
-        // 输出插槽（节点右侧）：圆点在右边缘，标签在圆点左侧（节点内部右侧），右对齐，最大宽度120pt
+        // 输出插槽（节点右侧）：圆点在右边缘，标签在圆点左侧（节点内部右侧），右对齐，最大宽度90pt
         if let outputs = node.outputs {
             for (index, slot) in outputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: true)
@@ -424,10 +424,10 @@ struct WorkflowCanvasView: View {
 
                 if let slotName = slot.name, !slotName.isEmpty {
                     let localized = SlotLocalization.localized(for: slotName)
-                    let maxWidth: CGFloat = 120
+                    let maxWidth: CGFloat = 90
                     let displayName = truncatedText(localized, font: labelFont, maxWidth: maxWidth)
                     let nameText = Text(displayName)
-                        .font(.system(size: 10))
+                        .font(.system(size: 9))
                         .foregroundColor(.secondary)
                     // 标签在圆点左侧（节点内部），右对齐
                     let labelPoint = CGPoint(x: point.x - dotSize / 2 - 5, y: point.y)
@@ -436,7 +436,7 @@ struct WorkflowCanvasView: View {
             }
         }
 
-        // 输入插槽（节点左侧）：圆点在左边缘，标签在圆点右侧（节点内部左侧），左对齐，最大宽度100pt
+        // 输入插槽（节点左侧）：圆点在左边缘，标签在圆点右侧（节点内部左侧），左对齐，最大宽度75pt
         if let inputs = node.inputs {
             for (index, slot) in inputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
@@ -452,10 +452,10 @@ struct WorkflowCanvasView: View {
 
                 if let slotName = slot.name, !slotName.isEmpty {
                     let localized = SlotLocalization.localized(for: slotName)
-                    let maxWidth: CGFloat = 100
+                    let maxWidth: CGFloat = 75
                     let displayName = truncatedText(localized, font: labelFont, maxWidth: maxWidth)
                     let nameText = Text(displayName)
-                        .font(.system(size: 10))
+                        .font(.system(size: 9))
                         .foregroundColor(.secondary)
                     // 标签在圆点右侧（节点内部），左对齐
                     let labelPoint = CGPoint(x: point.x + dotSize / 2 + 5, y: point.y)
