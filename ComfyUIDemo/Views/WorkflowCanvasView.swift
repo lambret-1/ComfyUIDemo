@@ -21,6 +21,10 @@ struct WorkflowCanvasView: View {
     @State private var viewSize: CGSize = .zero
     /// 高亮节点ID（搜索定位时使用）
     @State private var highlightedNodeId: Int?
+    /// 当前正在编辑的单个参数（nodeId + widgetIndex）
+    @State private var editingWidget: (nodeId: Int, index: Int)?
+    /// 单参数编辑弹窗的输入文本
+    @State private var editingText: String = ""
 
     var body: some View {
         GeometryReader { geometry in
@@ -76,30 +80,81 @@ struct WorkflowCanvasView: View {
                     let worldX = (location.x - offset.x) / zoom
                     let worldY = (location.y - offset.y) / zoom
                     let worldPoint = CGPoint(x: worldX, y: worldY)
-                    // 点击右上角双圈圆点或控件区域（文本框/滑块/开关）时弹出详情页
-                    selectedNodeId = workflow.nodes.first { node in
+
+                    for node in workflow.nodes {
                         let rect = CGRect(origin: node.position, size: node.nodeSize)
                         let headerHeight = min(30, rect.height * 0.4)
-                        // 1. 右上角双圈圆点区域（扩大点击区域）
+
+                        // 1. 右上角双圈圆点 → 弹出详情页
                         let infoButtonSize: CGFloat = 24
                         let infoButtonX = rect.maxX - infoButtonSize - 3
                         let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
                         let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
-                        if infoButtonRect.contains(worldPoint) { return true }
-                        // 2. 控件区域（header下方，左右边距之间）
+                        if infoButtonRect.contains(worldPoint) {
+                            selectedNodeId = node.id
+                            return
+                        }
+
+                        // 2. 控件区域 → 计算点击的具体参数
                         let widgetTop = rect.minY + headerHeight + 6
                         let widgetBottom = rect.maxY - 20
                         let leftInset: CGFloat = 75
                         let rightInset: CGFloat = 85
-                        let widgetRect = CGRect(x: rect.minX + leftInset, y: widgetTop, width: rect.width - leftInset - rightInset, height: widgetBottom - widgetTop)
-                        return widgetRect.contains(worldPoint)
-                    }?.id
+                        let widgetX = rect.minX + leftInset
+                        let widgetWidth = rect.width - leftInset - rightInset
+                        let widgetRect = CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
+
+                        guard widgetRect.contains(worldPoint),
+                              let widgets = node.widgetsValues, !widgets.isEmpty else { continue }
+
+                        // 计算点击的参数索引
+                        let rowHeight: CGFloat = 22
+                        let relativeY = worldPoint.y - widgetTop
+                        let index = Int(relativeY / rowHeight)
+                        guard index >= 0, index < widgets.count else { continue }
+
+                        let widget = widgets[index]
+                        // 点击开关 → 直接切换
+                        if case .toggle = widget.widgetKind {
+                            toggleWidget(nodeId: node.id, index: index)
+                            return
+                        }
+                        // 点击文本框/数字框 → 弹出单参数编辑
+                        editingWidget = (node.id, index)
+                        editingText = widget.displayString
+                        return
+                    }
                 }
                 .sheet(item: Binding(
                     get: { selectedNodeId.map { NodeIDWrapper(id: $0) } },
                     set: { selectedNodeId = $0?.id }
                 )) { wrapper in
                     NodeDetailSheet(workflow: $workflow, nodeId: wrapper.id)
+                }
+                .alert("编辑参数", isPresented: Binding(
+                    get: { editingWidget != nil },
+                    set: { if !$0 { editingWidget = nil } }
+                )) {
+                    TextField("参数值", text: $editingText)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                    Button("取消", role: .cancel) { editingWidget = nil }
+                    Button("保存") {
+                        if let editing = editingWidget {
+                            saveEditedWidget(nodeId: editing.nodeId, index: editing.index, text: editingText)
+                        }
+                        editingWidget = nil
+                    }
+                } message: {
+                    if let editing = editingWidget,
+                       let node = workflow.nodeMap[editing.nodeId],
+                       let widgets = node.widgetsValues,
+                       editing.index < widgets.count {
+                        let rawName = editing.index < node.widgetNames.count ? node.widgetNames[editing.index] : "参数\(editing.index + 1)"
+                        Text(SlotLocalization.bilingual(for: rawName))
+                    } else {
+                        Text("")
+                    }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .resetCanvasView)) { _ in
                     fitToView(size: geometry.size)
@@ -567,6 +622,42 @@ struct WorkflowCanvasView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             if highlightedNodeId == nodeId { highlightedNodeId = nil }
         }
+    }
+
+    /// 切换开关控件的值
+    private func toggleWidget(nodeId: Int, index: Int) {
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
+        var node = workflow.nodes[nodeIndex]
+        guard var widgets = node.widgetsValues, index < widgets.count else { return }
+        let widget = widgets[index]
+        if case .toggle = widget.widgetKind {
+            widgets[index] = .bool(!widget.boolValue)
+            node.widgetsValues = widgets
+            workflow.nodes[nodeIndex] = node
+        }
+    }
+
+    /// 保存单参数编辑结果（自动识别数值/文本类型）
+    private func saveEditedWidget(nodeId: Int, index: Int, text: String) {
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
+        var node = workflow.nodes[nodeIndex]
+        guard var widgets = node.widgetsValues, index < widgets.count else { return }
+        let original = widgets[index]
+        // 根据原控件类型决定保存格式
+        switch original.widgetKind {
+        case .number:
+            if let doubleValue = Double(text) {
+                widgets[index] = .double(doubleValue)
+            } else {
+                widgets[index] = .string(text)
+            }
+        case .text:
+            widgets[index] = .string(text)
+        case .toggle:
+            widgets[index] = .bool(text.lowercased() == "true" || text == "1" || text.lowercased() == "开")
+        }
+        node.widgetsValues = widgets
+        workflow.nodes[nodeIndex] = node
     }
 }
 
