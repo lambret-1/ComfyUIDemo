@@ -802,12 +802,10 @@ struct WorkflowCanvasView: View {
     // MARK: - 选中节点的可交互控件层（直接在文本框内编辑）
 
     /// 选中节点的可交互控件视图（与Canvas绘制的控件布局一致）
-    @ViewBuilder
     private func editableControls(for node: NodeModel) -> some View {
         let rect = CGRect(origin: .zero, size: node.nodeSize)
         let headerHeight = min(30, rect.height * 0.4)
         let widgetTop = headerHeight + 6
-        let widgetBottom = rect.height - 20
         // 与drawNodes一致的动态边距计算
         let baseLeftInset: CGFloat = 75
         let baseRightInset: CGFloat = 85
@@ -826,11 +824,10 @@ struct WorkflowCanvasView: View {
         let labelWidth: CGFloat = 48
         let rowHeight: CGFloat = 22
 
-        ZStack(alignment: .topLeading) {
+        return ZStack(alignment: .topLeading) {
             if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
                 ForEach(Array(widgets.enumerated()), id: \.offset) { index, widget in
                     let controlY = widgetTop + CGFloat(index) * rowHeight
-                    let controlX = widgetX + labelWidth + 4
                     let controlWidth = widgetWidth - labelWidth - 4
                     let rawName = index < node.widgetNames.count ? node.widgetNames[index] : "参数\(index + 1)"
                     let paramName = SlotLocalization.localized(for: rawName)
@@ -856,91 +853,91 @@ struct WorkflowCanvasView: View {
         }
         .frame(width: rect.width, height: rect.height)
         .contentShape(Rectangle())
-        // 阻止点击事件传递到Canvas，确保TextField能获得焦点
         .onTapGesture { }
     }
 
     /// 单个可交互控件（TextField/Toggle/Slider）
-    @ViewBuilder
     private func editableWidgetControl(widget: WidgetValue, index: Int, nodeId: Int, controlWidth: CGFloat) -> some View {
-        switch widget.widgetKind {
-        case .toggle:
-            Toggle("", isOn: Binding(
-                get: { widget.boolValue },
-                set: { newValue in
-                    if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
-                        workflow.nodes[nodeIndex].widgetsValues?[index] = .bool(newValue)
-                    }
-                }
-            ))
-            .labelsHidden()
-            .frame(width: 28)
-
-        case .number:
-            HStack(spacing: 6) {
-                // 数字输入框
-                TextField("", text: Binding(
-                    get: { widget.displayString },
+        Group {
+            switch widget.widgetKind {
+            case .toggle:
+                Toggle("", isOn: Binding(
+                    get: { widget.boolValue },
                     set: { newValue in
                         if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
-                            let original = workflow.nodes[nodeIndex].widgetsValues?[index]
-                            if case .int = original {
-                                if let intValue = Int(newValue) {
-                                    workflow.nodes[nodeIndex].widgetsValues?[index] = .int(intValue)
-                                }
-                            } else {
-                                if let doubleValue = Double(newValue) {
-                                    workflow.nodes[nodeIndex].widgetsValues?[index] = .double(doubleValue)
-                                }
-                            }
+                            workflow.nodes[nodeIndex].widgetsValues?[index] = .bool(newValue)
                         }
                     }
                 ))
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 9))
-                .keyboardType(.decimalPad)
-                .frame(width: 48, height: 16)
-                .multilineTextAlignment(.center)
+                .labelsHidden()
+                .frame(width: 28)
 
-                // 滑块
-                if controlWidth > 74 {
-                    Slider(value: Binding(
-                        get: {
-                            switch widget {
-                            case .int(let v): return Double(v)
-                            case .double(let v): return v
-                            default: return 0
-                            }
-                        },
+            case .number:
+                HStack(spacing: 6) {
+                    // 数字输入框
+                    TextField("", text: Binding(
+                        get: { widget.displayString },
                         set: { newValue in
                             if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
                                 let original = workflow.nodes[nodeIndex].widgetsValues?[index]
                                 if case .int = original {
-                                    workflow.nodes[nodeIndex].widgetsValues?[index] = .int(Int(newValue))
+                                    if let intValue = Int(newValue) {
+                                        workflow.nodes[nodeIndex].widgetsValues?[index] = .int(intValue)
+                                    }
                                 } else {
-                                    workflow.nodes[nodeIndex].widgetsValues?[index] = .double(newValue)
+                                    if let doubleValue = Double(newValue) {
+                                        workflow.nodes[nodeIndex].widgetsValues?[index] = .double(doubleValue)
+                                    }
                                 }
                             }
                         }
-                    ), in: 0...100)
-                    .frame(width: controlWidth - 54, height: 16)
-                }
-            }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 9))
+                    .keyboardType(.decimalPad)
+                    .frame(width: 48, height: 16)
+                    .multilineTextAlignment(.center)
 
-        case .text:
-            TextField("", text: Binding(
-                get: { widget.displayString },
-                set: { newValue in
-                    if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
-                        workflow.nodes[nodeIndex].widgetsValues?[index] = .string(newValue)
+                    // 滑块
+                    if controlWidth > 74 {
+                        Slider(value: Binding(
+                            get: {
+                                switch widget {
+                                case .int(let v): return Double(v)
+                                case .double(let v): return v
+                                default: return 0
+                                }
+                            },
+                            set: { newValue in
+                                if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
+                                    let original = workflow.nodes[nodeIndex].widgetsValues?[index]
+                                    if case .int = original {
+                                        workflow.nodes[nodeIndex].widgetsValues?[index] = .int(Int(newValue))
+                                    } else {
+                                        workflow.nodes[nodeIndex].widgetsValues?[index] = .double(newValue)
+                                    }
+                                }
+                            }
+                        ), in: 0...100)
+                        .frame(width: controlWidth - 54, height: 16)
                     }
                 }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .font(.system(size: 8))
-            .frame(width: controlWidth, height: 16)
-            .lineLimit(1)
-            .truncationMode(.tail)
+
+            case .text:
+                TextField("", text: Binding(
+                    get: { widget.displayString },
+                    set: { newValue in
+                        if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
+                            workflow.nodes[nodeIndex].widgetsValues?[index] = .string(newValue)
+                        }
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 8))
+                .frame(width: controlWidth, height: 16)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            }
         }
     }
 }
