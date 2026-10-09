@@ -10,6 +10,8 @@ struct WorkflowCanvasPage: View {
     @Environment(\.dismiss) private var dismiss
     /// 是否显示搜索页面
     @State private var showSearch: Bool = false
+    /// 是否显示节点库菜单
+    @State private var showNodeLibrary: Bool = false
     /// 保存成功提示
     @State private var showSaveSuccess: Bool = false
     /// 保存失败提示
@@ -22,13 +24,22 @@ struct WorkflowCanvasPage: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        Button {
-                            onDismiss()
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "chevron.left")
-                                Text("返回")
+                        HStack(spacing: 12) {
+                            // 返回按钮
+                            Button {
+                                onDismiss()
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "chevron.left")
+                                    Text("返回")
+                                }
+                            }
+                            // 节点库菜单按钮
+                            Button {
+                                showNodeLibrary = true
+                            } label: {
+                                Image(systemName: "plus.circle")
                             }
                         }
                     }
@@ -61,6 +72,17 @@ struct WorkflowCanvasPage: View {
                         NotificationCenter.default.post(name: .focusNode, object: nodeId)
                     }
                 }
+                .fullScreenCover(isPresented: $showNodeLibrary) {
+                    NodeLibraryMenu(
+                        onSelect: { definition in
+                            showNodeLibrary = false
+                            addNode(definition)
+                        },
+                        onDismiss: {
+                            showNodeLibrary = false
+                        }
+                    )
+                }
                 .overlay(alignment: .top) {
                     if showSaveSuccess {
                         saveToast(message: "已保存到本地", color: .green)
@@ -87,6 +109,24 @@ struct WorkflowCanvasPage: View {
                 showSaveError = false
             }
         }
+    }
+
+    // MARK: - 添加节点
+
+    private func addNode(_ definition: NodeDefinition) {
+        // 生成唯一节点ID
+        let newId = (workflow.nodes.map { $0.id }.max() ?? 0) + 1
+
+        // 计算新节点位置：放在现有节点的右下方，避免重叠
+        let maxX = workflow.nodes.map { $0.position.x + $0.nodeSize.width }.max() ?? 100
+        let maxY = workflow.nodes.map { $0.position.y }.max() ?? 100
+        let position = CGPoint(x: maxX + 50, y: maxY + 50)
+
+        // 根据节点定义创建NodeModel
+        let newNode = definition.createNodeModel(id: newId, position: position)
+
+        // 添加到工作流
+        workflow.nodes.append(newNode)
     }
 
     private func saveToast(message: String, color: Color) -> some View {

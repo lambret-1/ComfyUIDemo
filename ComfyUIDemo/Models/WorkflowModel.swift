@@ -186,6 +186,22 @@ struct NodeModel: Codable, Identifiable, Hashable {
         case titleColorHex = "title_color"
     }
 
+    /// 成员初始化器（用于从节点库创建新节点）
+    init(id: Int, type: String, pos: [Double], size: [Double],
+         inputs: [SlotModel]?, outputs: [SlotModel]?, title: String?,
+         widgetsValues: [WidgetValue]?, colorHex: String?, titleColorHex: String?) {
+        self.id = id
+        self.type = type
+        self.pos = pos
+        self.size = size
+        self.inputs = inputs
+        self.outputs = outputs
+        self.title = title
+        self.widgetsValues = widgetsValues
+        self.colorHex = colorHex
+        self.titleColorHex = titleColorHex
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         // 兼容 id 为字符串或整数
@@ -255,6 +271,15 @@ struct SlotModel: Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case name, type, links, widget
         case slotIndex = "slot_index"
+    }
+
+    /// 成员初始化器（用于创建新节点时构造插槽）
+    init(name: String?, type: String?, link: Int? = nil, links: [Int]? = nil, slotIndex: Int? = nil, widgetIndex: Int? = nil) {
+        self.name = name
+        self.type = type
+        self.slotIndex = slotIndex
+        self.links = links
+        self.widgetIndex = widgetIndex
     }
 
     init(from decoder: Decoder) throws {
