@@ -115,8 +115,11 @@ final class WorkflowViewModel: ObservableObject {
             width: screenDelta.width / viewport.scale,
             height: screenDelta.height / viewport.scale
         )
-        workflow.nodes[index].position.x += worldDelta.width
-        workflow.nodes[index].position.y += worldDelta.height
+        // position是计算属性，需要修改底层pos数组
+        if workflow.nodes[index].pos.count >= 2 {
+            workflow.nodes[index].pos[0] += worldDelta.width
+            workflow.nodes[index].pos[1] += worldDelta.height
+        }
     }
 
     /// 更新控件值（直接修改workflow，确保触发视图更新）
@@ -125,6 +128,14 @@ final class WorkflowViewModel: ObservableObject {
               workflow.nodes[nodeIndex].widgetsValues != nil,
               index < workflow.nodes[nodeIndex].widgetsValues!.count else { return }
         workflow.nodes[nodeIndex].widgetsValues![index] = value
+    }
+
+    /// 获取当前最新的控件值（避免使用传入的widget副本导致显示旧值）
+    func currentWidgetValue(nodeID: Int, index: Int) -> WidgetValue? {
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeID }),
+              let widgets = workflow.nodes[nodeIndex].widgetsValues,
+              index < widgets.count else { return nil }
+        return widgets[index]
     }
 
     /// 切换开关控件
