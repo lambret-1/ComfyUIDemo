@@ -30,8 +30,6 @@ targets:
       - path: ComfyUIDemo
         excludes:
           - "Info.plist"
-    info:
-      path: ComfyUIDemo/Info.plist
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.demo.comfyui
