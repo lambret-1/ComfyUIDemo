@@ -1,0 +1,34 @@
+{
+  "category": "编解码器",
+  "categoryIcon": "arrow.left.arrow.right",
+  "nodes": [
+    {
+      "type": "VAEDecode",
+      "displayName": "VAE视频解码",
+      "colorHex": "#00CC96",
+      "description": "将潜空间LATENT通过VAE解码为视频帧IMAGE",
+      "inputs": [
+        {"name": "samples", "type": "LATENT"},
+        {"name": "vae", "type": "VAE"}
+      ],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE"}
+      ],
+      "parameters": []
+    },
+    {
+      "type": "VAEDecodeAudio",
+      "displayName": "VAE音频解码",
+      "colorHex": "#00CC96",
+      "description": "将潜空间LATENT通过音频VAE解码为AUDIO",
+      "inputs": [
+        {"name": "samples", "type": "LATENT"},
+        {"name": "vae", "type": "VAE"}
+      ],
+      "outputs": [
+        {"name": "AUDIO", "type": "AUDIO"}
+      ],
+      "parameters": []
+    }
+  ]
+}

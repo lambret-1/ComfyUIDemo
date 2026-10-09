@@ -1,0 +1,83 @@
+{
+  "category": "采样器",
+  "categoryIcon": "slider.horizontal.3",
+  "nodes": [
+    {
+      "type": "KSamplerSelect",
+      "displayName": "采样器选择器",
+      "colorHex": "#EF553B",
+      "description": "选择扩散采样算法，输出SAMPLER供高级采样节点使用",
+      "inputs": [],
+      "outputs": [
+        {"name": "SAMPLER", "type": "SAMPLER"}
+      ],
+      "parameters": [
+        {"name": "sampler_name", "displayName": "采样器", "type": "enumeration", "defaultValue": "res_multistep", "options": ["res_multistep", "euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "lcm", "ddim", "uni_pc", "uni_pc_bh2"]}
+      ]
+    },
+    {
+      "type": "BasicScheduler",
+      "displayName": "基础调度器",
+      "colorHex": "#EF553B",
+      "description": "计算扩散采样的sigma噪声调度序列",
+      "inputs": [
+        {"name": "model", "type": "MODEL"},
+        {"name": "steps", "type": "INT"}
+      ],
+      "outputs": [
+        {"name": "SIGMAS", "type": "SIGMAS"}
+      ],
+      "parameters": [
+        {"name": "scheduler", "displayName": "调度算法", "type": "enumeration", "defaultValue": "simple", "options": ["simple", "normal", "karras", "exponential", "sgm_uniform", "ddim_uniform", "beta"]},
+        {"name": "steps", "displayName": "采样步数", "type": "integer", "defaultValue": "20", "minValue": 1, "maxValue": 100, "step": 1},
+        {"name": "denoise", "displayName": "去噪强度", "type": "float", "defaultValue": "1.0", "minValue": 0.0, "maxValue": 1.0, "step": 0.01}
+      ]
+    },
+    {
+      "type": "BasicGuider",
+      "displayName": "基础引导器",
+      "colorHex": "#EF553B",
+      "description": "将模型与条件组合为采样引导器，控制采样方向",
+      "inputs": [
+        {"name": "model", "type": "MODEL"},
+        {"name": "conditioning", "type": "CONDITIONING"}
+      ],
+      "outputs": [
+        {"name": "GUIDER", "type": "GUIDER"}
+      ],
+      "parameters": []
+    },
+    {
+      "type": "SamplerCustomAdvanced",
+      "displayName": "高级采样器",
+      "colorHex": "#EF553B",
+      "description": "可自由组合噪声/引导器/采样器/调度器的高级采样节点",
+      "inputs": [
+        {"name": "noise", "type": "NOISE"},
+        {"name": "guider", "type": "GUIDER"},
+        {"name": "sampler", "type": "SAMPLER"},
+        {"name": "sigmas", "type": "SIGMAS"},
+        {"name": "latent_image", "type": "LATENT"}
+      ],
+      "outputs": [
+        {"name": "output", "type": "LATENT"},
+        {"name": "denoised_output", "type": "LATENT"}
+      ],
+      "parameters": []
+    },
+    {
+      "type": "RandomNoise",
+      "displayName": "随机噪声生成器",
+      "colorHex": "#EF553B",
+      "description": "生成扩散采样所需的随机噪声",
+      "inputs": [],
+      "outputs": [
+        {"name": "NOISE", "type": "NOISE"}
+      ],
+      "parameters": [
+        {"name": "noise_seed", "displayName": "随机种子", "type": "integer", "defaultValue": "261662374822964", "minValue": 0, "maxValue": 18446744073709551615, "step": 1},
+        {"name": "noise_control", "displayName": "种子控制", "type": "enumeration", "defaultValue": "randomize", "options": ["randomize", "fixed"]}
+      ]
+    }
+  ]
+}

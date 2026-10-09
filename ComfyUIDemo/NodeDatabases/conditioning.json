@@ -1,0 +1,38 @@
+{
+  "category": "条件构建",
+  "categoryIcon": "wand.and.stars",
+  "nodes": [
+    {
+      "type": "MiniMaxH3ReferenceToVideo",
+      "displayName": "MiniMax H3 参考生视频",
+      "colorHex": "#AB63FA",
+      "description": "MiniMax H3多参考生视频核心节点，支持参考图片/参考视频/参考音频，输出条件与潜空间",
+      "inputs": [
+        {"name": "clip", "type": "CLIP"},
+        {"name": "vae", "type": "VAE"},
+        {"name": "audio_vae", "type": "VAE"},
+        {"name": "ref_images.ref_image_0", "type": "IMAGE"},
+        {"name": "ref_images.ref_image_1", "type": "IMAGE"},
+        {"name": "ref_images.ref_image_2", "type": "IMAGE"},
+        {"name": "ref_videos.ref_video_0", "type": "IMAGE"},
+        {"name": "ref_video_audios.ref_video_audio_0", "type": "AUDIO"},
+        {"name": "ref_audios.ref_audio_0", "type": "AUDIO"},
+        {"name": "prompt", "type": "STRING"},
+        {"name": "width", "type": "INT"},
+        {"name": "height", "type": "INT"},
+        {"name": "length", "type": "INT"}
+      ],
+      "outputs": [
+        {"name": "positive", "type": "CONDITIONING"},
+        {"name": "LATENT", "type": "LATENT"}
+      ],
+      "parameters": [
+        {"name": "prompt", "displayName": "提示词", "type": "string", "defaultValue": ""},
+        {"name": "width", "displayName": "宽度", "type": "integer", "defaultValue": "1344", "minValue": 256, "maxValue": 4096, "step": 32},
+        {"name": "height", "displayName": "高度", "type": "integer", "defaultValue": "768", "minValue": 256, "maxValue": 4096, "step": 32},
+        {"name": "length", "displayName": "视频长度(帧)", "type": "integer", "defaultValue": "124", "minValue": 1, "maxValue": 1024, "step": 1},
+        {"name": "resolution_mode", "displayName": "分辨率模式", "type": "enumeration", "defaultValue": "match", "options": ["match", "custom"]}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "category": "笔记",
+  "categoryIcon": "note.text",
+  "nodes": [
+    {
+      "type": "MarkdownNote",
+      "displayName": "Markdown笔记",
+      "colorHex": "#FECB52",
+      "description": "在画布中显示Markdown格式的笔记文本，用于记录说明和参数备注",
+      "inputs": [],
+      "outputs": [],
+      "parameters": [
+        {"name": "text", "displayName": "笔记内容", "type": "string", "defaultValue": "## 笔记标题\n\n在此输入Markdown格式的笔记内容。"}
+      ]
+    }
+  ]
+}

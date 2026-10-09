@@ -1,0 +1,76 @@
+{
+  "category": "MiniMax H3 一体化",
+  "categoryIcon": "sparkles",
+  "nodes": [
+    {
+      "type": "79dd8a95-ce9d-4c14-b264-2162e8bec5ce",
+      "displayName": "MiniMax H3 文生视频(一体化)",
+      "colorHex": "#FF6692",
+      "description": "MiniMax H3文生视频一体化节点，内置模型加载/编码/采样/解码全流程，输入提示词直接输出VIDEO",
+      "inputs": [
+        {"name": "first_frame", "type": "IMAGE"},
+        {"name": "last_frame", "type": "IMAGE"},
+        {"name": "width", "type": "INT"},
+        {"name": "height", "type": "INT"},
+        {"name": "value_1", "type": "FLOAT"},
+        {"name": "vae_name_1", "type": "COMBO"},
+        {"name": "value", "type": "BOOLEAN"},
+        {"name": "strength_model_1", "type": "FLOAT"},
+        {"name": "value_2", "type": "INT"}
+      ],
+      "outputs": [
+        {"name": "VIDEO", "type": "VIDEO"}
+      ],
+      "parameters": [
+        {"name": "prompt", "displayName": "提示词", "type": "string", "defaultValue": ""},
+        {"name": "width", "displayName": "宽度", "type": "integer", "defaultValue": "1344", "minValue": 256, "maxValue": 4096, "step": 32},
+        {"name": "height", "displayName": "高度", "type": "integer", "defaultValue": "768", "minValue": 256, "maxValue": 4096, "step": 32},
+        {"name": "length", "displayName": "视频长度(秒)", "type": "integer", "defaultValue": "5", "minValue": 1, "maxValue": 30, "step": 1},
+        {"name": "seed", "displayName": "随机种子", "type": "integer", "defaultValue": "757358688076805", "minValue": 0, "maxValue": 18446744073709551615, "step": 1},
+        {"name": "unet_name", "displayName": "UNet模型", "type": "enumeration", "defaultValue": "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "options": ["minimax_h3_fl2va_pruned_int8_convrot.safetensors"]},
+        {"name": "clip_name", "displayName": "CLIP模型", "type": "enumeration", "defaultValue": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "options": ["qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"]},
+        {"name": "vae_name", "displayName": "视频VAE", "type": "enumeration", "defaultValue": "minimax_h3_video_vae_int8_convrot.safetensors", "options": ["minimax_h3_video_vae_int8_convrot.safetensors"]},
+        {"name": "audio_vae_name", "displayName": "音频VAE", "type": "enumeration", "defaultValue": "minimax_h3_audio_vae_fp32.safetensors", "options": ["minimax_h3_audio_vae_fp32.safetensors"]},
+        {"name": "enable_audio", "displayName": "生成音频", "type": "boolean", "defaultValue": "false"},
+        {"name": "lora_name", "displayName": "Lora模型", "type": "enumeration", "defaultValue": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui.safetensors", "options": ["minimax_h3_fl2v_turbo_8step_v1.0_comfyui.safetensors"]},
+        {"name": "lora_strength", "displayName": "Lora强度", "type": "float", "defaultValue": "1.0", "minValue": 0.0, "maxValue": 2.0, "step": 0.01},
+        {"name": "steps", "displayName": "采样步数", "type": "integer", "defaultValue": "8", "minValue": 1, "maxValue": 50, "step": 1}
+      ]
+    },
+    {
+      "type": "4c314f31-ecda-4b08-ae98-faaba1bf613f",
+      "displayName": "MiniMax H3 图生视频(一体化)",
+      "colorHex": "#FF6692",
+      "description": "MiniMax H3图生视频一体化节点，内置模型加载/编码/采样/解码全流程，输入首帧图片直接输出VIDEO",
+      "inputs": [
+        {"name": "first_frame", "type": "IMAGE"},
+        {"name": "last_frame", "type": "IMAGE"},
+        {"name": "width", "type": "INT"},
+        {"name": "height", "type": "INT"},
+        {"name": "value_1", "type": "FLOAT"},
+        {"name": "vae_name_1", "type": "COMBO"},
+        {"name": "value", "type": "BOOLEAN"},
+        {"name": "strength_model_1", "type": "FLOAT"},
+        {"name": "value_2", "type": "INT"}
+      ],
+      "outputs": [
+        {"name": "VIDEO", "type": "VIDEO"}
+      ],
+      "parameters": [
+        {"name": "prompt", "displayName": "提示词", "type": "string", "defaultValue": ""},
+        {"name": "width", "displayName": "宽度", "type": "integer", "defaultValue": "1344", "minValue": 256, "maxValue": 4096, "step": 32},
+        {"name": "height", "displayName": "高度", "type": "integer", "defaultValue": "768", "minValue": 256, "maxValue": 4096, "step": 32},
+        {"name": "length", "displayName": "视频长度(秒)", "type": "integer", "defaultValue": "5", "minValue": 1, "maxValue": 30, "step": 1},
+        {"name": "seed", "displayName": "随机种子", "type": "integer", "defaultValue": "757358688076805", "minValue": 0, "maxValue": 18446744073709551615, "step": 1},
+        {"name": "unet_name", "displayName": "UNet模型", "type": "enumeration", "defaultValue": "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "options": ["minimax_h3_fl2va_pruned_int8_convrot.safetensors"]},
+        {"name": "clip_name", "displayName": "CLIP模型", "type": "enumeration", "defaultValue": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "options": ["qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"]},
+        {"name": "vae_name", "displayName": "视频VAE", "type": "enumeration", "defaultValue": "minimax_h3_video_vae_int8_convrot.safetensors", "options": ["minimax_h3_video_vae_int8_convrot.safetensors"]},
+        {"name": "audio_vae_name", "displayName": "音频VAE", "type": "enumeration", "defaultValue": "minimax_h3_audio_vae_fp32.safetensors", "options": ["minimax_h3_audio_vae_fp32.safetensors"]},
+        {"name": "enable_audio", "displayName": "生成音频", "type": "boolean", "defaultValue": "false"},
+        {"name": "lora_name", "displayName": "Lora模型", "type": "enumeration", "defaultValue": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui.safetensors", "options": ["minimax_h3_fl2v_turbo_8step_v1.0_comfyui.safetensors"]},
+        {"name": "lora_strength", "displayName": "Lora强度", "type": "float", "defaultValue": "1.0", "minValue": 0.0, "maxValue": 2.0, "step": 0.01},
+        {"name": "steps", "displayName": "采样步数", "type": "integer", "defaultValue": "8", "minValue": 1, "maxValue": 50, "step": 1}
+      ]
+    }
+  ]
+}

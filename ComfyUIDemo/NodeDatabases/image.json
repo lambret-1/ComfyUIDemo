@@ -1,0 +1,53 @@
+{
+  "category": "图像处理",
+  "categoryIcon": "photo",
+  "nodes": [
+    {
+      "type": "LoadImage",
+      "displayName": "加载图片",
+      "colorHex": "#FFA15A",
+      "description": "从输入目录加载图片，输出图像与遮罩",
+      "inputs": [],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE"},
+        {"name": "MASK", "type": "MASK"}
+      ],
+      "parameters": [
+        {"name": "image", "displayName": "图片文件", "type": "enumeration", "defaultValue": "example.png", "options": []},
+        {"name": "upload", "displayName": "上传", "type": "string", "defaultValue": "image"}
+      ]
+    },
+    {
+      "type": "GetImageSize",
+      "displayName": "获取图片尺寸",
+      "colorHex": "#FFA15A",
+      "description": "读取图片的宽度、高度和批量大小",
+      "inputs": [
+        {"name": "image", "type": "IMAGE"}
+      ],
+      "outputs": [
+        {"name": "width", "type": "INT"},
+        {"name": "height", "type": "INT"},
+        {"name": "batch_size", "type": "INT"}
+      ],
+      "parameters": []
+    },
+    {
+      "type": "ImageScaleToTotalPixels",
+      "displayName": "图片缩放到总像素",
+      "colorHex": "#FFA15A",
+      "description": "将图片缩放到指定总像素数，保持宽高比",
+      "inputs": [
+        {"name": "image", "type": "IMAGE"}
+      ],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE"}
+      ],
+      "parameters": [
+        {"name": "upscale_method", "displayName": "缩放算法", "type": "enumeration", "defaultValue": "nearest-exact", "options": ["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]},
+        {"name": "megapixels", "displayName": "目标百万像素", "type": "float", "defaultValue": "0.9", "minValue": 0.01, "maxValue": 100.0, "step": 0.01},
+        {"name": "multiple_of", "displayName": "对齐倍数", "type": "integer", "defaultValue": "32", "minValue": 1, "maxValue": 256, "step": 1}
+      ]
+    }
+  ]
+}

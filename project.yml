@@ -33,6 +33,8 @@ targets:
     resources:
       - path: ComfyUIDemo/Templates
         optional: true
+      - path: ComfyUIDemo/NodeDatabases
+        optional: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.demo.comfyui

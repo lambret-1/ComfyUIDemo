@@ -1,8 +1,8 @@
 import Foundation
 
-// MARK: - 节点数据库模型
+// MARK: - 节点数据库模型（从JSON加载）
 
-/// 参数类型枚举
+/// 参数类型
 enum NodeParameterType: String, Codable {
     case string      // 文本
     case integer     // 整数
@@ -11,7 +11,7 @@ enum NodeParameterType: String, Codable {
     case enumeration // 下拉枚举
 }
 
-/// 节点参数定义
+/// 参数定义
 struct NodeParameterDefinition: Codable, Hashable {
     /// 参数名（英文，对应widgets_values索引）
     let name: String
@@ -31,60 +31,50 @@ struct NodeParameterDefinition: Codable, Hashable {
     let options: [String]?
     /// 参数描述
     let description: String?
-
-    init(name: String, displayName: String, type: NodeParameterType,
-         defaultValue: String? = nil, minValue: Double? = nil,
-         maxValue: Double? = nil, step: Double? = nil,
-         options: [String]? = nil, description: String? = nil) {
-        self.name = name
-        self.displayName = displayName
-        self.type = type
-        self.defaultValue = defaultValue
-        self.minValue = minValue
-        self.maxValue = maxValue
-        self.step = step
-        self.options = options
-        self.description = description
-    }
 }
 
-/// 节点插槽定义
+/// 插槽定义
 struct NodeSlotDefinition: Codable, Hashable {
-    /// 插槽名（英文）
-    let name: String
-    /// 中文显示名
-    let displayName: String
-    /// 数据类型（如 MODEL/CLIP/VAE/CONDITIONING/LATENT/IMAGE/VIDEO/AUDIO 等）
-    let type: String
-    /// 是否可选
-    let optional: Bool
-
-    init(name: String, displayName: String, type: String, optional: Bool = false) {
-        self.name = name
-        self.displayName = displayName
-        self.type = type
-        self.optional = optional
-    }
+    /// 插槽名称
+    let name: String?
+    /// 插槽数据类型
+    let type: String?
 }
 
 /// 节点分类
-enum NodeCategory: String, Codable {
-    case loader      = "加载器"
+enum NodeCategory: String, Codable, CaseIterable {
+    case loader      = "模型加载器"
     case sampler     = "采样器"
     case conditioning = "条件构建"
-    case encoder     = "编码器"
-    case processing  = "处理"
-    case utility     = "工具"
+    case codec       = "编解码器"
+    case image       = "图像处理"
+    case video       = "视频处理"
+    case primitive   = "工具与原语"
+    case note        = "笔记"
+    case minimaxAllInOne = "MiniMax H3 一体化"
+
+    /// 分类图标（SF Symbol）
+    var iconName: String {
+        switch self {
+        case .loader: return "arrow.down.circle"
+        case .sampler: return "slider.horizontal.3"
+        case .conditioning: return "wand.and.stars"
+        case .codec: return "arrow.left.arrow.right"
+        case .image: return "photo"
+        case .video: return "film"
+        case .primitive: return "wrench.and.screwdriver"
+        case .note: return "note.text"
+        case .minimaxAllInOne: return "sparkles"
+        }
+    }
 }
 
-/// 完整节点定义
+/// 节点定义
 struct NodeDefinition: Codable, Hashable {
     /// 节点类型名（英文，与JSON中的class_type对应）
     let type: String
     /// 中文显示名
     let displayName: String
-    /// 节点分类
-    let category: NodeCategory
     /// 主题色（hex）
     let colorHex: String
     /// 输入插槽列表
@@ -95,570 +85,162 @@ struct NodeDefinition: Codable, Hashable {
     let parameters: [NodeParameterDefinition]
     /// 节点描述
     let description: String?
+    /// 所属分类（运行时赋值，不在JSON中）
+    var category: NodeCategory = .primitive
+}
 
-    init(type: String, displayName: String, category: NodeCategory,
-         colorHex: String, inputs: [NodeSlotDefinition],
-         outputs: [NodeSlotDefinition], parameters: [NodeParameterDefinition],
-         description: String? = nil) {
-        self.type = type
-        self.displayName = displayName
-        self.category = category
-        self.colorHex = colorHex
-        self.inputs = inputs
-        self.outputs = outputs
-        self.parameters = parameters
-        self.description = description
+// MARK: - JSON数据库文件结构
+
+/// 单个分类数据库JSON结构
+struct NodeCategoryDatabase: Codable {
+    /// 分类名（中文）
+    let category: String
+    /// 分类图标
+    let categoryIcon: String
+    /// 该分类下的节点列表
+    let nodes: [NodeDefinition]
+}
+
+// MARK: - 节点数据库（从Bundle JSON加载）
+
+enum NodeDatabase {
+    /// 所有节点（按类型名索引）
+    static private(set) var allNodes: [String: NodeDefinition] = [:]
+    /// 分类到节点列表的映射
+    static private(set) var nodesByCategory: [NodeCategory: [NodeDefinition]] = [:]
+    /// 是否已加载
+    static private(set) var isLoaded = false
+
+    /// 数据库JSON文件名列表（按功能板块划分）
+    private static let databaseFiles: [(file: String, category: NodeCategory)] = [
+        ("loaders", .loader),
+        ("sampling", .sampler),
+        ("conditioning", .conditioning),
+        ("codec", .codec),
+        ("image", .image),
+        ("video", .video),
+        ("primitives", .primitive),
+        ("note", .note),
+        ("minimax_allinone", .minimaxAllInOne),
+    ]
+
+    /// 加载所有节点数据库（从Bundle读取JSON）
+    static func loadIfNeeded() {
+        guard !isLoaded else { return }
+        isLoaded = true
+
+        var all: [String: NodeDefinition] = [:]
+        var byCategory: [NodeCategory: [NodeDefinition]] = [:]
+
+        for (fileName, category) in databaseFiles {
+            guard let url = Bundle.main.url(forResource: fileName, withExtension: "json", subdirectory: "NodeDatabases") else {
+                continue
+            }
+            do {
+                let data = try Data(contentsOf: url)
+                let decoder = JSONDecoder()
+                let categoryDB = try decoder.decode(NodeCategoryDatabase.self, from: data)
+                var nodes = categoryDB.nodes
+                for i in 0..<nodes.count {
+                    nodes[i].category = category
+                }
+                byCategory[category] = nodes
+                for node in nodes {
+                    all[node.type] = node
+                }
+            } catch {
+                continue
+            }
+        }
+
+        allNodes = all
+        nodesByCategory = byCategory
+    }
+
+    /// 根据节点类型名查找定义
+    static func definition(for nodeType: String) -> NodeDefinition? {
+        loadIfNeeded()
+        return allNodes[nodeType]
+    }
+
+    /// 获取指定分类的所有节点
+    static func nodes(in category: NodeCategory) -> [NodeDefinition] {
+        loadIfNeeded()
+        return nodesByCategory[category] ?? []
+    }
+
+    /// 所有分类（按固定顺序）
+    static var allCategories: [NodeCategory] {
+        NodeCategory.allCases
     }
 }
 
-// MARK: - MiniMax H3 官方节点数据库
+// MARK: - 节点创建辅助
 
-/// MiniMax H3 系列节点数据库
-enum MiniMaxH3NodeDatabase {
-    /// 所有MiniMaxH3官方节点定义（按类型名索引）
-    static let allNodes: [String: NodeDefinition] = [
-        // MARK: 加载器类
+extension NodeDefinition {
+    /// 根据节点定义创建NodeModel
+    func createNodeModel(id: Int, position: CGPoint) -> NodeModel {
+        // 创建输入插槽
+        let inputSlots: [SlotModel]? = inputs.isEmpty ? nil : inputs.enumerated().map { index, slot in
+            SlotModel(
+                name: slot.name,
+                type: slot.type,
+                link: nil,
+                slotIndex: index
+            )
+        }
 
-        /// Ref2VA DiT 模型加载器
-        "MiniMaxH3Ref2VAModelLoader": NodeDefinition(
-            type: "MiniMaxH3Ref2VAModelLoader",
-            displayName: "Ref2VA DiT 模型加载",
-            category: .loader,
-            colorHex: "#2563EB",
-            inputs: [],
-            outputs: [
-                NodeSlotDefinition(name: "MODEL", displayName: "模型", type: "MODEL")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "model_name", displayName: "模型文件名", type: .string,
-                                        defaultValue: "minimax_h3_ref2va_pruned_int8_converted.safetensors",
-                                        description: "Ref2VA DiT 模型文件路径"),
-                NodeParameterDefinition(name: "device", displayName: "运行设备", type: .enumeration,
-                                        defaultValue: "default", options: ["default", "cpu", "cuda"])
-            ],
-            description: "加载 MiniMax H3 Ref2VA DiT 模型"
-        ),
+        // 创建输出插槽
+        let outputSlots: [SlotModel]? = outputs.isEmpty ? nil : outputs.enumerated().map { index, slot in
+            SlotModel(
+                name: slot.name,
+                type: slot.type,
+                links: [],
+                slotIndex: index
+            )
+        }
 
-        /// VAE 加载器
-        "MiniMaxH3VAELoader": NodeDefinition(
-            type: "MiniMaxH3VAELoader",
-            displayName: "VAE 加载器",
-            category: .loader,
-            colorHex: "#2563EB",
-            inputs: [],
-            outputs: [
-                NodeSlotDefinition(name: "VIDEO_VAE", displayName: "视频VAE", type: "VAE"),
-                NodeSlotDefinition(name: "AUDIO_VAE", displayName: "音频VAE", type: "VAE")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "video_vae_name", displayName: "视频VAE文件名", type: .string,
-                                        defaultValue: "minimax_h3_video_vae.safetensors"),
-                NodeParameterDefinition(name: "audio_vae_name", displayName: "音频VAE文件名", type: .string,
-                                        defaultValue: "minimax_h3_audio_vae.safetensors")
-            ],
-            description: "加载 MiniMax H3 视频和音频 VAE"
-        ),
+        // 创建默认参数值
+        let widgetValues: [WidgetValue]? = parameters.isEmpty ? nil : parameters.map { param in
+            switch param.type {
+            case .integer:
+                if let defaultValue = param.defaultValue, let intValue = Int(defaultValue) {
+                    return .int(intValue)
+                }
+                return .int(0)
+            case .float:
+                if let defaultValue = param.defaultValue, let doubleValue = Double(defaultValue) {
+                    return .double(doubleValue)
+                }
+                return .double(0.0)
+            case .boolean:
+                if let defaultValue = param.defaultValue {
+                    return .bool(defaultValue.lowercased() == "true")
+                }
+                return .bool(false)
+            case .string, .enumeration:
+                return .string(param.defaultValue ?? "")
+            }
+        }
 
-        /// 参考图片加载器
-        "MiniMaxH3Ref2VAImageLoader": NodeDefinition(
-            type: "MiniMaxH3Ref2VAImageLoader",
-            displayName: "参考图片加载器",
-            category: .loader,
-            colorHex: "#2563EB",
-            inputs: [],
-            outputs: [
-                NodeSlotDefinition(name: "images", displayName: "图像组", type: "IMAGE")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "image", displayName: "图片", type: .string,
-                                        description: "参考图片文件")
-            ],
-            description: "加载 Ref2VA 参考图片"
-        ),
+        // 计算节点尺寸（根据参数数量）
+        let widgetCount = parameters.count
+        let baseHeight: Double = 80
+        let rowHeight: Double = 22
+        let height = widgetCount > 0 ? baseHeight + Double(widgetCount) * rowHeight + 20 : baseHeight
+        let width: Double = 220
 
-        /// 参考视频加载器
-        "MiniMaxH3Ref2VAVideoLoader": NodeDefinition(
-            type: "MiniMaxH3Ref2VAVideoLoader",
-            displayName: "参考视频加载器",
-            category: .loader,
-            colorHex: "#2563EB",
-            inputs: [],
-            outputs: [
-                NodeSlotDefinition(name: "videos", displayName: "视频组", type: "VIDEO"),
-                NodeSlotDefinition(name: "audios", displayName: "音频组", type: "AUDIO")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "video", displayName: "视频", type: .string),
-                NodeParameterDefinition(name: "start_frame", displayName: "起始帧", type: .integer,
-                                        defaultValue: "0", minValue: 0, step: 1),
-                NodeParameterDefinition(name: "frame_count", displayName: "帧数", type: .integer,
-                                        defaultValue: "16", minValue: 1, step: 1)
-            ],
-            description: "加载 Ref2VA 参考视频（含音轨）"
-        ),
-
-        /// 参考音频加载器
-        "MiniMaxH3Ref2VAAudioLoader": NodeDefinition(
-            type: "MiniMaxH3Ref2VAAudioLoader",
-            displayName: "参考音频加载器",
-            category: .loader,
-            colorHex: "#2563EB",
-            inputs: [],
-            outputs: [
-                NodeSlotDefinition(name: "audios", displayName: "音频组", type: "AUDIO")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "audio", displayName: "音频", type: .string)
-            ],
-            description: "加载 Ref2VA 参考音频"
-        ),
-
-        // MARK: 编码器类
-
-        /// 文本编码器（Qwen3-VL）
-        "MiniMaxH3TextEncoder": NodeDefinition(
-            type: "MiniMaxH3TextEncoder",
-            displayName: "文本编码器（Qwen3-VL）",
-            category: .encoder,
-            colorHex: "#CA8A04",
-            inputs: [
-                NodeSlotDefinition(name: "plan_json", displayName: "规划JSON", type: "PLAN_JSON", optional: true),
-                NodeSlotDefinition(name: "total_segments", displayName: "总片段数", type: "INT", optional: true)
-            ],
-            outputs: [
-                NodeSlotDefinition(name: "CLIP", displayName: "文本编码", type: "CLIP")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "text_model", displayName: "文本", type: .enumeration,
-                                        defaultValue: "Qwen3-VL-32B", options: ["Qwen3-VL-32B", "Qwen3-VL-7B"]),
-                NodeParameterDefinition(name: "max_tokens", displayName: "最大Token数", type: .integer,
-                                        defaultValue: "50", minValue: 1, maxValue: 4096, step: 1)
-            ],
-            description: "使用 Qwen3-VL 模型编码文本提示词"
-        ),
-
-        // MARK: 条件构建类
-
-        /// Ref2VA 参考条件构建器
-        "MiniMaxH3Ref2VAConditioning": NodeDefinition(
-            type: "MiniMaxH3Ref2VAConditioning",
-            displayName: "Ref2VA 参考条件构建器",
-            category: .conditioning,
-            colorHex: "#CA8A04",
-            inputs: [
-                NodeSlotDefinition(name: "ref_images", displayName: "参考图片", type: "IMAGE"),
-                NodeSlotDefinition(name: "ref_videos", displayName: "参考视频", type: "VIDEO"),
-                NodeSlotDefinition(name: "ref_video_audios", displayName: "参考视频原声", type: "AUDIO"),
-                NodeSlotDefinition(name: "ref_audios", displayName: "参考音频", type: "AUDIO"),
-                NodeSlotDefinition(name: "plan_json", displayName: "规划JSON", type: "PLAN_JSON"),
-                NodeSlotDefinition(name: "clip", displayName: "文本编码", type: "CLIP")
-            ],
-            outputs: [
-                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "mode", displayName: "模式", type: .enumeration,
-                                        defaultValue: "ref2va", options: ["ref2va", "full_ref", "text_only"]),
-                NodeParameterDefinition(name: "strength", displayName: "强度", type: .float,
-                                        defaultValue: "6", minValue: 0, maxValue: 100, step: 0.5),
-                NodeParameterDefinition(name: "prompt_style", displayName: "提示词风格", type: .enumeration,
-                                        defaultValue: "full_ref", options: ["full_ref", "minimal", "detailed"]),
-                NodeParameterDefinition(name: "param4", displayName: "参数4", type: .string),
-                NodeParameterDefinition(name: "param5", displayName: "参数5", type: .string),
-                NodeParameterDefinition(name: "param6", displayName: "参数6", type: .string)
-            ],
-            description: "构建 Ref2VA 参考条件，融合图片/视频/音频/文本多模态输入"
-        ),
-
-        // MARK: 采样器类
-
-        /// Ref2VA 分段采样器（含 Context Loop）
-        "MiniMaxH3SegmentedSamplerRef2VA": NodeDefinition(
-            type: "MiniMaxH3SegmentedSamplerRef2VA",
-            displayName: "Ref2VA 分段采样器（含 Context Loop）",
-            category: .sampler,
-            colorHex: "#B91C1C",
-            inputs: [
-                NodeSlotDefinition(name: "model", displayName: "模型", type: "MODEL"),
-                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING"),
-                NodeSlotDefinition(name: "video_vae", displayName: "视频VAE", type: "VAE"),
-                NodeSlotDefinition(name: "audio_vae", displayName: "音频VAE", type: "VAE"),
-                NodeSlotDefinition(name: "prev_latent_tail", displayName: "上一段尾帧", type: "LATENT", optional: true),
-                NodeSlotDefinition(name: "plan_json", displayName: "规划JSON", type: "PLAN_JSON", optional: true)
-            ],
-            outputs: [
-                NodeSlotDefinition(name: "video_latent", displayName: "视频潜空间", type: "LATENT"),
-                NodeSlotDefinition(name: "latent_tail", displayName: "潜空间尾帧", type: "LATENT"),
-                NodeSlotDefinition(name: "segment_index", displayName: "片段索引", type: "INT"),
-                NodeSlotDefinition(name: "audio_latent", displayName: "音频潜空间", type: "LATENT")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "mode", displayName: "模式", type: .enumeration,
-                                        defaultValue: "ref2va", options: ["ref2va", "standard"]),
-                NodeParameterDefinition(name: "steps", displayName: "步数", type: .integer,
-                                        defaultValue: "10", minValue: 1, maxValue: 100, step: 1),
-                NodeParameterDefinition(name: "cfg", displayName: "引导系数", type: .float,
-                                        defaultValue: "20", minValue: 1, maxValue: 30, step: 0.5),
-                NodeParameterDefinition(name: "sampler_name", displayName: "采样器", type: .enumeration,
-                                        defaultValue: "5", options: ["euler", "dpmpp_2m", "dpmpp_sde", "heun", "ddim"]),
-                NodeParameterDefinition(name: "scheduler", displayName: "调度器", type: .enumeration,
-                                        defaultValue: "-1", options: ["normal", "karras", "exponential", "sgm_uniform"]),
-                NodeParameterDefinition(name: "seed", displayName: "种子", type: .integer,
-                                        defaultValue: "-1", minValue: -1, maxValue: 4294967294, step: 1),
-                NodeParameterDefinition(name: "segment_count", displayName: "片段数", type: .integer,
-                                        defaultValue: "22", minValue: 1, maxValue: 100, step: 1),
-                NodeParameterDefinition(name: "context_length", displayName: "上下文长度", type: .integer,
-                                        defaultValue: "24", minValue: 1, maxValue: 100, step: 1),
-                NodeParameterDefinition(name: "denoise", displayName: "去噪强度", type: .float,
-                                        defaultValue: "12", minValue: 0, maxValue: 1, step: 0.01),
-                NodeParameterDefinition(name: "width", displayName: "宽度", type: .integer,
-                                        defaultValue: "1344", minValue: 256, maxValue: 4096, step: 16),
-                NodeParameterDefinition(name: "height", displayName: "高度", type: .integer,
-                                        defaultValue: "768", minValue: 256, maxValue: 4096, step: 16),
-                NodeParameterDefinition(name: "batch_size", displayName: "批大小", type: .integer,
-                                        defaultValue: "1", minValue: 1, maxValue: 16, step: 1)
-            ],
-            description: "Ref2VA 分段采样器，支持 Context Loop 循环接力生成长视频"
-        ),
-
-        /// 上下文循环接力
-        "MiniMaxH3ContextLoop": NodeDefinition(
-            type: "MiniMaxH3ContextLoop",
-            displayName: "上下文循环接力",
-            category: .sampler,
-            colorHex: "#0F766E",
-            inputs: [
-                NodeSlotDefinition(name: "latent_tail", displayName: "潜空间尾帧", type: "LATENT")
-            ],
-            outputs: [
-                NodeSlotDefinition(name: "context_latent", displayName: "上下文潜空间", type: "LATENT")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "latent_tail_frames", displayName: "潜空间尾帧", type: .integer,
-                                        defaultValue: "22", minValue: 1, maxValue: 100, step: 1),
-                NodeParameterDefinition(name: "steps", displayName: "步数", type: .integer,
-                                        defaultValue: "24", minValue: 1, maxValue: 100, step: 1),
-                NodeParameterDefinition(name: "cfg", displayName: "引导系数", type: .float,
-                                        defaultValue: "20", minValue: 1, maxValue: 30, step: 0.5),
-                NodeParameterDefinition(name: "denoise", displayName: "去噪强度", type: .float,
-                                        defaultValue: "0.8", minValue: 0, maxValue: 1, step: 0.01),
-                NodeParameterDefinition(name: "loop_count", displayName: "循环次数", type: .integer,
-                                        defaultValue: "1", minValue: 1, maxValue: 100, step: 1)
-            ],
-            description: "上下文循环接力，将上一段尾帧作为下一段的上下文输入，实现长视频生成"
-        ),
-
-        // MARK: 处理类
-
-        /// 剧本分段规划台
-        "MiniMaxH3ScriptPlanner": NodeDefinition(
-            type: "MiniMaxH3ScriptPlanner",
-            displayName: "剧本分段规划台",
-            category: .processing,
-            colorHex: "#0F766E",
-            inputs: [],
-            outputs: [
-                NodeSlotDefinition(name: "plan_json", displayName: "规划JSON", type: "PLAN_JSON"),
-                NodeSlotDefinition(name: "total_segments", displayName: "总片段数", type: "INT")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "prompt", displayName: "提示词", type: .string,
-                                        description: "视频生成提示词"),
-                NodeParameterDefinition(name: "max_segments", displayName: "最大片段数", type: .integer,
-                                        defaultValue: "10", minValue: 1, maxValue: 100, step: 1),
-                NodeParameterDefinition(name: "duration", displayName: "时长", type: .float,
-                                        defaultValue: "30", minValue: 1, maxValue: 600, step: 1)
-            ],
-            description: "将长提示词自动分段规划，生成多段视频的拍摄计划"
-        ),
-
-        // MARK: 条件构建类（补充）
-
-        /// 图生视频条件构建器
-        "MiniMaxH3ImageToVideo": NodeDefinition(
-            type: "MiniMaxH3ImageToVideo",
-            displayName: "图生视频条件构建",
-            category: .conditioning,
-            colorHex: "#CA8A04",
-            inputs: [
-                NodeSlotDefinition(name: "image", displayName: "图像", type: "IMAGE"),
-                NodeSlotDefinition(name: "clip", displayName: "文本编码", type: "CLIP"),
-                NodeSlotDefinition(name: "vae", displayName: "VAE", type: "VAE", optional: true)
-            ],
-            outputs: [
-                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING"),
-                NodeSlotDefinition(name: "latent", displayName: "潜空间", type: "LATENT")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "prompt", displayName: "提示词", type: .string),
-                NodeParameterDefinition(name: "negative_prompt", displayName: "负向提示词", type: .string),
-                NodeParameterDefinition(name: "width", displayName: "宽度", type: .integer,
-                                        defaultValue: "1344", minValue: 256, maxValue: 4096, step: 16),
-                NodeParameterDefinition(name: "height", displayName: "高度", type: .integer,
-                                        defaultValue: "768", minValue: 256, maxValue: 4096, step: 16),
-                NodeParameterDefinition(name: "num_frames", displayName: "帧数", type: .integer,
-                                        defaultValue: "81", minValue: 1, maxValue: 1000, step: 1)
-            ],
-            description: "基于首帧图像生成视频条件"
-        ),
-
-        /// 参考生视频条件构建器
-        "MiniMaxH3ReferenceToVideo": NodeDefinition(
-            type: "MiniMaxH3ReferenceToVideo",
-            displayName: "参考生视频条件构建",
-            category: .conditioning,
-            colorHex: "#CA8A04",
-            inputs: [
-                NodeSlotDefinition(name: "ref_image", displayName: "参考图片", type: "IMAGE"),
-                NodeSlotDefinition(name: "ref_video", displayName: "参考视频", type: "VIDEO", optional: true),
-                NodeSlotDefinition(name: "clip", displayName: "文本编码", type: "CLIP")
-            ],
-            outputs: [
-                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "prompt", displayName: "提示词", type: .string),
-                NodeParameterDefinition(name: "ref_strength", displayName: "参考强度", type: .float,
-                                        defaultValue: "0.8", minValue: 0, maxValue: 1, step: 0.05),
-                NodeParameterDefinition(name: "motion_strength", displayName: "运动强度", type: .float,
-                                        defaultValue: "0.5", minValue: 0, maxValue: 1, step: 0.05)
-            ],
-            description: "基于参考图片/视频生成视频条件"
-        ),
-
-        /// 文生视频条件构建器
-        "MiniMaxH3TextToVideo": NodeDefinition(
-            type: "MiniMaxH3TextToVideo",
-            displayName: "文生视频条件构建",
-            category: .conditioning,
-            colorHex: "#CA8A04",
-            inputs: [
-                NodeSlotDefinition(name: "clip", displayName: "文本编码", type: "CLIP")
-            ],
-            outputs: [
-                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING"),
-                NodeSlotDefinition(name: "latent", displayName: "潜空间", type: "LATENT")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "prompt", displayName: "提示词", type: .string),
-                NodeParameterDefinition(name: "negative_prompt", displayName: "负向提示词", type: .string),
-                NodeParameterDefinition(name: "width", displayName: "宽度", type: .integer,
-                                        defaultValue: "1344", minValue: 256, maxValue: 4096, step: 16),
-                NodeParameterDefinition(name: "height", displayName: "高度", type: .integer,
-                                        defaultValue: "768", minValue: 256, maxValue: 4096, step: 16),
-                NodeParameterDefinition(name: "num_frames", displayName: "帧数", type: .integer,
-                                        defaultValue: "81", minValue: 1, maxValue: 1000, step: 1)
-            ],
-            description: "纯文本生成视频条件"
-        ),
-
-        /// 添加引导条件
-        "MiniMaxH3AddGuide": NodeDefinition(
-            type: "MiniMaxH3AddGuide",
-            displayName: "添加引导条件",
-            category: .conditioning,
-            colorHex: "#CA8A04",
-            inputs: [
-                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING"),
-                NodeSlotDefinition(name: "guide", displayName: "引导", type: "GUIDE")
-            ],
-            outputs: [
-                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "guide_strength", displayName: "引导强度", type: .float,
-                                        defaultValue: "1.0", minValue: 0, maxValue: 2, step: 0.1),
-                NodeParameterDefinition(name: "guide_start", displayName: "引导起始", type: .float,
-                                        defaultValue: "0.0", minValue: 0, maxValue: 1, step: 0.01),
-                NodeParameterDefinition(name: "guide_end", displayName: "引导结束", type: .float,
-                                        defaultValue: "1.0", minValue: 0, maxValue: 1, step: 0.01)
-            ],
-            description: "向条件中添加引导信号"
-        ),
-
-        // MARK: 采样器类（补充）
-
-        /// Sigma偏移采样器
-        "MiniMaxH3SigmaShift": NodeDefinition(
-            type: "MiniMaxH3SigmaShift",
-            displayName: "Sigma偏移采样器",
-            category: .sampler,
-            colorHex: "#B91C1C",
-            inputs: [
-                NodeSlotDefinition(name: "model", displayName: "模型", type: "MODEL"),
-                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING"),
-                NodeSlotDefinition(name: "latent_image", displayName: "潜空间", type: "LATENT")
-            ],
-            outputs: [
-                NodeSlotDefinition(name: "latent", displayName: "潜空间", type: "LATENT")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "seed", displayName: "种子", type: .integer,
-                                        defaultValue: "-1", minValue: -1, maxValue: 4294967294, step: 1),
-                NodeParameterDefinition(name: "steps", displayName: "步数", type: .integer,
-                                        defaultValue: "30", minValue: 1, maxValue: 100, step: 1),
-                NodeParameterDefinition(name: "cfg", displayName: "引导系数", type: .float,
-                                        defaultValue: "6.0", minValue: 1, maxValue: 30, step: 0.5),
-                NodeParameterDefinition(name: "sampler_name", displayName: "采样器", type: .enumeration,
-                                        defaultValue: "euler", options: ["euler", "dpmpp_2m", "dpmpp_sde", "heun", "ddim"]),
-                NodeParameterDefinition(name: "scheduler", displayName: "调度器", type: .enumeration,
-                                        defaultValue: "normal", options: ["normal", "karras", "exponential", "sgm_uniform"]),
-                NodeParameterDefinition(name: "denoise", displayName: "去噪强度", type: .float,
-                                        defaultValue: "1.0", minValue: 0, maxValue: 1, step: 0.01),
-                NodeParameterDefinition(name: "sigma_shift", displayName: "Sigma偏移", type: .float,
-                                        defaultValue: "1.0", minValue: 0.1, maxValue: 10, step: 0.1)
-            ],
-            description: "支持Sigma偏移的高级采样器"
-        ),
-
-        // MARK: 处理类（补充）
-
-        /// 音视频解码器
-        "MiniMaxH3DecodeAV": NodeDefinition(
-            type: "MiniMaxH3DecodeAV",
-            displayName: "音视频解码器",
-            category: .processing,
-            colorHex: "#0F766E",
-            inputs: [
-                NodeSlotDefinition(name: "video_latent", displayName: "视频潜空间", type: "LATENT"),
-                NodeSlotDefinition(name: "audio_latent", displayName: "音频潜空间", type: "LATENT", optional: true),
-                NodeSlotDefinition(name: "video_vae", displayName: "视频VAE", type: "VAE"),
-                NodeSlotDefinition(name: "audio_vae", displayName: "音频VAE", type: "VAE", optional: true)
-            ],
-            outputs: [
-                NodeSlotDefinition(name: "video", displayName: "视频", type: "VIDEO"),
-                NodeSlotDefinition(name: "audio", displayName: "音频", type: "AUDIO", optional: true)
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "decode_video", displayName: "解码视频", type: .boolean, defaultValue: "true"),
-                NodeParameterDefinition(name: "decode_audio", displayName: "解码音频", type: .boolean, defaultValue: "true"),
-                NodeParameterDefinition(name: "fps", displayName: "帧率", type: .integer,
-                                        defaultValue: "24", minValue: 1, maxValue: 120, step: 1)
-            ],
-            description: "将视频和音频潜空间解码为可播放的音视频"
-        ),
-
-        /// 保存视频
-        "SaveVideo": NodeDefinition(
-            type: "SaveVideo",
-            displayName: "保存视频",
-            category: .processing,
-            colorHex: "#0F766E",
-            inputs: [
-                NodeSlotDefinition(name: "video", displayName: "视频", type: "VIDEO"),
-                NodeSlotDefinition(name: "audio", displayName: "音频", type: "AUDIO", optional: true)
-            ],
-            outputs: [],
-            parameters: [
-                NodeParameterDefinition(name: "filename_prefix", displayName: "文件名前缀", type: .string,
-                                        defaultValue: "MiniMaxH3/video"),
-                NodeParameterDefinition(name: "fps", displayName: "帧率", type: .integer,
-                                        defaultValue: "24", minValue: 1, maxValue: 120, step: 1),
-                NodeParameterDefinition(name: "format", displayName: "格式", type: .enumeration,
-                                        defaultValue: "mp4", options: ["mp4", "webm", "gif"]),
-                NodeParameterDefinition(name: "save_audio", displayName: "保存音频", type: .boolean, defaultValue: "true")
-            ],
-            description: "将视频保存到输出目录"
-        ),
-
-        // MARK: 加载器类（补充）
-
-        /// MiniMax H3 模型加载器
-        "MiniMaxH3ModelLoader": NodeDefinition(
-            type: "MiniMaxH3ModelLoader",
-            displayName: "MiniMax H3 模型加载",
-            category: .loader,
-            colorHex: "#2563EB",
-            inputs: [],
-            outputs: [
-                NodeSlotDefinition(name: "MODEL", displayName: "模型", type: "MODEL"),
-                NodeSlotDefinition(name: "CLIP", displayName: "文本编码", type: "CLIP"),
-                NodeSlotDefinition(name: "VAE", displayName: "VAE", type: "VAE")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "model_name", displayName: "模型文件名", type: .string,
-                                        defaultValue: "minimax_h3.safetensors"),
-                NodeParameterDefinition(name: "device", displayName: "运行设备", type: .enumeration,
-                                        defaultValue: "default", options: ["default", "cpu", "cuda"])
-            ],
-            description: "加载 MiniMax H3 完整模型（含DiT/CLIP/VAE）"
-        ),
-
-        /// 加载图片
-        "LoadImage": NodeDefinition(
-            type: "LoadImage",
-            displayName: "加载图片",
-            category: .loader,
-            colorHex: "#2563EB",
-            inputs: [],
-            outputs: [
-                NodeSlotDefinition(name: "IMAGE", displayName: "图像", type: "IMAGE"),
-                NodeSlotDefinition(name: "MASK", displayName: "遮罩", type: "MASK", optional: true)
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "image", displayName: "图片", type: .string)
-            ],
-            description: "从输入目录加载图片"
-        ),
-
-        /// 加载视频
-        "LoadVideo": NodeDefinition(
-            type: "LoadVideo",
-            displayName: "加载视频",
-            category: .loader,
-            colorHex: "#2563EB",
-            inputs: [],
-            outputs: [
-                NodeSlotDefinition(name: "IMAGE", displayName: "图像组", type: "IMAGE"),
-                NodeSlotDefinition(name: "AUDIO", displayName: "音频", type: "AUDIO", optional: true)
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "video", displayName: "视频", type: .string),
-                NodeParameterDefinition(name: "start_frame", displayName: "起始帧", type: .integer,
-                                        defaultValue: "0", minValue: 0, step: 1),
-                NodeParameterDefinition(name: "frame_load_cap", displayName: "加载帧数", type: .integer,
-                                        defaultValue: "16", minValue: 1, step: 1),
-                NodeParameterDefinition(name: "skip_first_frames", displayName: "跳过首帧", type: .integer,
-                                        defaultValue: "0", minValue: 0, step: 1),
-                NodeParameterDefinition(name: "select_every_nth", displayName: "抽帧间隔", type: .integer,
-                                        defaultValue: "1", minValue: 1, step: 1)
-            ],
-            description: "从输入目录加载视频（可抽帧）"
-        ),
-
-        /// 加载音频
-        "LoadAudio": NodeDefinition(
-            type: "LoadAudio",
-            displayName: "加载音频",
-            category: .loader,
-            colorHex: "#2563EB",
-            inputs: [],
-            outputs: [
-                NodeSlotDefinition(name: "AUDIO", displayName: "音频", type: "AUDIO")
-            ],
-            parameters: [
-                NodeParameterDefinition(name: "audio", displayName: "音频", type: .string)
-            ],
-            description: "从输入目录加载音频"
+        return NodeModel(
+            id: id,
+            type: type,
+            pos: [Double(position.x), Double(position.y)],
+            size: [width, height],
+            inputs: inputSlots,
+            outputs: outputSlots,
+            title: displayName,
+            widgetsValues: widgetValues,
+            colorHex: colorHex,
+            titleColorHex: colorHex
         )
-    ]
-
-    /// 根据节点类型名获取节点定义
-    static func definition(for nodeType: String) -> NodeDefinition? {
-        // 精确匹配
-        if let def = allNodes[nodeType] { return def }
-        // 不区分大小写匹配
-        let lower = nodeType.lowercased()
-        return allNodes.values.first { $0.type.lowercased() == lower }
-    }
-
-    /// 获取所有节点定义列表
-    static var allDefinitions: [NodeDefinition] {
-        Array(allNodes.values)
-    }
-
-    /// 按分类获取节点
-    static func nodes(in category: NodeCategory) -> [NodeDefinition] {
-        allNodes.values.filter { $0.category == category }
     }
 }
