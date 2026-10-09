@@ -12,9 +12,14 @@ struct TemplateTabBar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                // 分类标题 + 模板标签
+                // 分类标题 + 模板标签（用Group替代Section，避免HStack中Section布局死循环）
                 ForEach(WorkflowTemplateDatabase.allCategories, id: \.self) { category in
-                    Section {
+                    Group {
+                        Text(category)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 4)
                         ForEach(WorkflowTemplateDatabase.templates(in: category)) { template in
                             TemplateTabChip(
                                 template: template,
@@ -25,12 +30,6 @@ struct TemplateTabBar: View {
                                 }
                             )
                         }
-                    } header: {
-                        Text(category)
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .padding(.leading, 4)
                     }
                 }
             }

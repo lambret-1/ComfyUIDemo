@@ -138,21 +138,27 @@ struct WorkflowCanvasPage: View {
     // MARK: - 加载模板
 
     private func loadTemplate(_ template: WorkflowTemplate) {
-        guard let loaded = template.loadWorkflow() else {
-            showTemplateError = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                showTemplateError = false
+        // 后台线程读取文件+解码JSON，避免主线程阻塞
+        DispatchQueue.global(qos: .userInitiated).async {
+            let loaded = template.loadWorkflow()
+            DispatchQueue.main.async {
+                guard let loaded = loaded else {
+                    showTemplateError = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        showTemplateError = false
+                    }
+                    return
+                }
+                workflow = loaded
+                // 延迟一帧再重置视角，确保workflow已渲染到画布
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .resetCanvasView, object: nil)
+                }
+                showTemplateSuccess = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    showTemplateSuccess = false
+                }
             }
-            return
-        }
-        workflow = loaded
-        // 重置画布视角
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .resetCanvasView, object: nil)
-        }
-        showTemplateSuccess = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            showTemplateSuccess = false
         }
     }
 
