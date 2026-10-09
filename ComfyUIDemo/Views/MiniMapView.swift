@@ -12,6 +12,8 @@ struct MiniMapView: View {
     let viewSize: CGSize
     /// 点击小地图回调，返回画布世界坐标
     let onTap: (CGPoint) -> Void
+    /// 拖拽小地图回调，返回画布世界坐标
+    let onDrag: (CGPoint) -> Void
 
     /// 小地图尺寸
     private let mapWidth: CGFloat = 130
@@ -21,10 +23,10 @@ struct MiniMapView: View {
 
     var body: some View {
         Canvas { context, size in
-            // 小地图背景
+            // 小地图背景（半透明，减少遮挡）
             let bgRect = CGRect(origin: .zero, size: size)
-            context.fill(Path(bgRect), with: .color(Color.black.opacity(0.75)))
-            context.stroke(Path(bgRect), with: .color(.white.opacity(0.4)), lineWidth: 1)
+            context.fill(Path(bgRect), with: .color(Color.black.opacity(0.6)))
+            context.stroke(Path(bgRect), with: .color(.white.opacity(0.35)), lineWidth: 1)
 
             // 计算所有节点（含分组）的包围盒
             guard let box = contentBoundingBox else { return }
@@ -80,22 +82,41 @@ struct MiniMapView: View {
         .frame(width: mapWidth, height: mapHeight)
         .cornerRadius(8)
         .contentShape(Rectangle())
-        .onTapGesture { location in
-            // 将小地图点击坐标转换为画布世界坐标
-            guard let box = contentBoundingBox else { return }
-            guard box.width > 0, box.height > 0 else { return }
-            let availableW = mapWidth - padding * 2
-            let availableH = mapHeight - padding * 2
-            let scale = min(availableW / box.width, availableH / box.height)
-            let contentW = box.width * scale
-            let contentH = box.height * scale
-            let offsetX = (mapWidth - contentW) / 2 - box.minX * scale
-            let offsetY = (mapHeight - contentH) / 2 - box.minY * scale
+        .gesture(
+            SimultaneousGesture(
+                TapGesture()
+                    .onEnded { _ in
+                        // 点击不处理位置，由DragGesture处理
+                    },
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let worldPoint = mapToWorld(location: value.location)
+                        onDrag(worldPoint)
+                    }
+                    .onEnded { value in
+                        let worldPoint = mapToWorld(location: value.location)
+                        onTap(worldPoint)
+                    }
+            )
+        )
+    }
 
-            let worldX = (location.x - offsetX) / scale
-            let worldY = (location.y - offsetY) / scale
-            onTap(CGPoint(x: worldX, y: worldY))
+    /// 将小地图坐标转换为画布世界坐标
+    private func mapToWorld(location: CGPoint) -> CGPoint {
+        guard let box = contentBoundingBox, box.width > 0, box.height > 0 else {
+            return .zero
         }
+        let availableW = mapWidth - padding * 2
+        let availableH = mapHeight - padding * 2
+        let scale = min(availableW / box.width, availableH / box.height)
+        let contentW = box.width * scale
+        let contentH = box.height * scale
+        let offsetX = (mapWidth - contentW) / 2 - box.minX * scale
+        let offsetY = (mapHeight - contentH) / 2 - box.minY * scale
+        return CGPoint(
+            x: (location.x - offsetX) / scale,
+            y: (location.y - offsetY) / scale
+        )
     }
 
     /// 所有节点与分组的包围盒

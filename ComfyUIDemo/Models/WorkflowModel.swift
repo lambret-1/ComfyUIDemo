@@ -113,20 +113,34 @@ struct NodeModel: Codable, Identifiable, Hashable {
         title?.isEmpty == false ? title! : type
     }
 
-    /// 控件参数名列表（优先从inputs的widget字段提取，其次用内置映射表，最后用序号）
+    /// 控件参数名列表（严格从inputs的widget索引提取，避免预设映射错位）
     var widgetNames: [String] {
-        // 1. 从 inputs 中提取有 widget 属性的 input 名称（按顺序）
-        let fromInputs = inputs?.compactMap { $0.widgetName } ?? []
-        if !fromInputs.isEmpty {
-            return fromInputs
+        let widgetCount = widgetsValues?.count ?? 0
+        guard widgetCount > 0 else { return [] }
+
+        // 1. 从 inputs 中提取有 widget 索引的 input，按 widget 索引排序后取 name
+        if let inputs = inputs {
+            let widgetInputs = inputs.compactMap { slot -> (index: Int, name: String)? in
+                guard let widgetIndex = slot.widgetIndex,
+                      let name = slot.name,
+                      widgetIndex >= 0 && widgetIndex < widgetCount else { return nil }
+                return (widgetIndex, name)
+            }
+            if !widgetInputs.isEmpty {
+                var names = [String](repeating: "", count: widgetCount)
+                for item in widgetInputs {
+                    names[item.index] = item.name
+                }
+                // 填充未命名的位置
+                for i in 0..<widgetCount where names[i].isEmpty {
+                    names[i] = "参数\(i + 1)"
+                }
+                return names
+            }
         }
-        // 2. 用内置常见节点参数名映射表
-        if let names = WidgetNameRegistry.names(for: type) {
-            return names
-        }
-        // 3. 兜底用序号
-        let count = widgetsValues?.count ?? 0
-        return (0..<count).map { "参数\($0 + 1)" }
+
+        // 2. 兜底用序号（不使用可能错位的预设映射表）
+        return (0..<widgetCount).map { "参数\($0 + 1)" }
     }
 
     /// 节点主体背景色（优先自定义颜色，否则按类型匹配）
@@ -219,8 +233,8 @@ struct SlotModel: Codable, Hashable {
     let slotIndex: Int?
     /// 关联的连线编号列表
     let links: [Int]?
-    /// 关联的控件信息（input中如有widget字段，则该input对应一个widget）
-    let widgetName: String?
+    /// 关联的控件索引（input中如有widget字段，则该input对应widgets_values中的第N个控件）
+    let widgetIndex: Int?
 
     enum CodingKeys: String, CodingKey {
         case name, type, links, widget
@@ -233,14 +247,8 @@ struct SlotModel: Codable, Hashable {
         type = try? container.decodeIfPresent(String.self, forKey: .type)
         slotIndex = try? container.decodeIfPresent(Int.self, forKey: .slotIndex)
         links = try? container.decodeIfPresent([Int].self, forKey: .links)
-        // 解析 widget 字段（可能是对象 {"name":"..."} 或字符串）
-        if let widgetObj = try? container.decodeIfPresent(WidgetInfo.self, forKey: .widget) {
-            widgetName = widgetObj.name
-        } else if let widgetStr = try? container.decodeIfPresent(String.self, forKey: .widget) {
-            widgetName = widgetStr
-        } else {
-            widgetName = nil
-        }
+        // ComfyUI中widget字段是整数，指向widgets_values的索引
+        widgetIndex = try? container.decodeIfPresent(Int.self, forKey: .widget)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -249,12 +257,8 @@ struct SlotModel: Codable, Hashable {
         try container.encodeIfPresent(type, forKey: .type)
         try container.encodeIfPresent(slotIndex, forKey: .slotIndex)
         try container.encodeIfPresent(links, forKey: .links)
+        try container.encodeIfPresent(widgetIndex, forKey: .widget)
     }
-}
-
-/// 控件信息（ComfyUI input中的widget字段）
-private struct WidgetInfo: Codable {
-    let name: String?
 }
 
 // MARK: - 连线模型

@@ -116,6 +116,14 @@ struct WorkflowCanvasView: View {
                             y: geometry.size.height / 2 - worldPoint.y * zoom
                         )
                         lastOffset = offset
+                    },
+                    onDrag: { worldPoint in
+                        // 拖拽小地图实时平移
+                        offset = CGPoint(
+                            x: geometry.size.width / 2 - worldPoint.x * zoom,
+                            y: geometry.size.height / 2 - worldPoint.y * zoom
+                        )
+                        lastOffset = offset
                     }
                 )
                 .padding(12)
@@ -189,15 +197,22 @@ struct WorkflowCanvasView: View {
         }
     }
 
-    /// 生成两点间的三次贝塞尔曲线路径（动态控制点，近距离收缩避免飞线）
+    /// 生成两点间的三次贝塞尔曲线路径（动态控制点，垂直距离大时增加水平偏移形成平滑弧）
     private func bezierLinkPath(from: CGPoint, to: CGPoint) -> Path {
         Path { path in
             path.move(to: from)
             let dx = to.x - from.x
             let dy = to.y - from.y
-            // 基于两点实际距离动态计算控制点偏移，近距离收缩，远距离上限100
-            let dist = sqrt(dx * dx + dy * dy)
-            let offset = min(max(dist * 0.3, 15), 100)
+            // 基础偏移基于水平距离
+            let baseOffset = min(max(abs(dx) * 0.5, 20), 120)
+            // 垂直距离大时额外增加水平偏移，形成平滑椭圆弧
+            let verticalBonus = min(abs(dy) * 0.15, 60)
+            var offset = baseOffset + verticalBonus
+            // 反向连线（目标在左侧）时增加偏移避免线条重叠
+            if dx < 0 {
+                offset += 30
+            }
+            offset = min(offset, 180)
             path.addCurve(
                 to: to,
                 control1: CGPoint(x: from.x + offset, y: from.y),
@@ -239,7 +254,7 @@ struct WorkflowCanvasView: View {
             // 控件区域（居中，避开左右两侧插槽标签，左右各预留75pt）
             let widgetTop = headerRect.maxY + 6
             let widgetBottom = rect.maxY - 20
-            let sideInset: CGFloat = 78
+            let sideInset: CGFloat = 95
             let widgetX = rect.minX + sideInset
             let widgetWidth = max(40, rect.width - sideInset * 2)
             if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
@@ -270,16 +285,30 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 控件绘制
 
-    /// 绘制节点内部控件（只读展示，带真实参数名标签）
+    /// 绘制节点内部控件（只读展示，带真实参数名标签，按类型渲染不同控件外观）
     private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], names: [String], in rect: CGRect) {
         let labelHeight: CGFloat = 10
         let controlHeight: CGFloat = 16
-        let rowSpacing: CGFloat = 4
+        let rowSpacing: CGFloat = 5
         let rowHeight = labelHeight + controlHeight + rowSpacing
         var currentY = rect.minY
 
         for (index, widget) in widgets.enumerated() {
-            guard currentY + rowHeight <= rect.maxY else {
+            // 计算当前控件需要的高度
+            var neededControlHeight = controlHeight
+            if case .text = widget.widgetKind {
+                let font = UIFont.systemFont(ofSize: 8)
+                let textHeight = widget.displayString.boundingRect(
+                    with: CGSize(width: rect.width - 8, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: font],
+                    context: nil
+                ).height
+                neededControlHeight = max(controlHeight, ceil(textHeight) + 4)
+            }
+            let totalRowHeight = labelHeight + neededControlHeight + rowSpacing
+
+            guard currentY + totalRowHeight <= rect.maxY else {
                 if currentY < rect.maxY {
                     let remaining = widgets.count - index
                     let moreText = Text("… +\(remaining) 更多参数")
@@ -314,7 +343,9 @@ struct WorkflowCanvasView: View {
                 context.draw(statusText, at: CGPoint(x: toggleRect.maxX + 4, y: controlY + 7), anchor: .leading)
 
             case .number:
-                let numRect = CGRect(x: rect.minX, y: controlY, width: min(rect.width, 64), height: controlHeight)
+                // 数字框 + 迷你滑块条
+                let numWidth: CGFloat = 52
+                let numRect = CGRect(x: rect.minX, y: controlY, width: numWidth, height: controlHeight)
                 let numShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(numShape.path(in: numRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(numShape.path(in: numRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
@@ -323,40 +354,51 @@ struct WorkflowCanvasView: View {
                     .foregroundColor(.primary)
                 context.draw(numText, in: numRect.insetBy(dx: 4, dy: 1))
 
+                // 迷你滑块条（仅外观，不可交互）
+                let sliderX = numRect.maxX + 6
+                let sliderWidth = max(0, rect.width - sliderX)
+                if sliderWidth > 20 {
+                    let sliderRect = CGRect(x: sliderX, y: controlY + 6, width: sliderWidth, height: 4)
+                    context.fill(Path(roundedRect: sliderRect, cornerSize: CGSize(width: 2, height: 2)),
+                               with: .color(.gray.opacity(0.25)))
+                    // 滑块圆点（默认在中间位置）
+                    let knobX = sliderX + sliderWidth * 0.5
+                    let knobRect = CGRect(x: knobX - 4, y: controlY + 3, width: 8, height: 10)
+                    context.fill(Path(ellipseIn: knobRect), with: .color(.blue))
+                }
+
             case .text:
                 let text = widget.displayString
-                // 长文本支持多行显示
-                let font = UIFont.systemFont(ofSize: 8)
-                let maxTextWidth = rect.width - 8
-                let textHeight = text.boundingRect(
-                    with: CGSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    attributes: [.font: font],
-                    context: nil
-                ).height
-                let neededHeight = max(controlHeight, ceil(textHeight) + 4)
-                // 如果当前行剩余空间不够，跳过
-                guard currentY + labelHeight + 1 + neededHeight <= rect.maxY else {
-                    let remaining = widgets.count - index
-                    let moreText = Text("… +\(remaining) 更多参数")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                    context.draw(moreText, in: CGRect(x: rect.minX, y: currentY, width: rect.width, height: 14))
-                    return
-                }
-                let textRect = CGRect(x: rect.minX, y: controlY, width: rect.width, height: neededHeight)
+                let isShortEnum = text.count <= 20 && !text.contains(" ") && !text.contains("\n")
+                let textRect = CGRect(x: rect.minX, y: controlY, width: rect.width, height: neededControlHeight)
                 let textShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(textShape.path(in: textRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(textShape.path(in: textRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
-                let textView = Text(text)
-                    .font(.system(size: 8))
-                    .foregroundColor(.primary)
-                context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
-                // 多行文本占用额外行高
-                currentY += max(0, neededHeight - controlHeight)
+
+                if isShortEnum {
+                    // 短文本：显示下拉箭头（模拟下拉菜单外观）
+                    let textView = Text(text)
+                        .font(.system(size: 8))
+                        .foregroundColor(.primary)
+                    context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
+                    // 下拉箭头
+                    let arrowX = textRect.maxX - 12
+                    let arrowPath = Path { p in
+                        p.move(to: CGPoint(x: arrowX, y: controlY + 5))
+                        p.addLine(to: CGPoint(x: arrowX + 4, y: controlY + 9))
+                        p.addLine(to: CGPoint(x: arrowX + 8, y: controlY + 5))
+                    }
+                    context.stroke(arrowPath, with: .color(.gray), lineWidth: 1)
+                } else {
+                    // 长文本：多行显示
+                    let textView = Text(text)
+                        .font(.system(size: 8))
+                        .foregroundColor(.primary)
+                    context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
+                }
             }
 
-            currentY += rowHeight
+            currentY += totalRowHeight
         }
     }
 
