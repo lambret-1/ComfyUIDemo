@@ -144,7 +144,7 @@ extension WorkflowCanvasView {
                 inputYOffsets.append(slotAreaTop + CGFloat(index) * slotGap)
                 if let name = slot.name, !name.isEmpty {
                     let localized = SlotLocalization.localized(for: name)
-                    inputNames.append(truncatedText(localized, font: labelFont, maxWidth: 60))
+                    inputNames.append(truncatedText(localized, font: labelFont, maxWidth: 90))
                 } else {
                     inputNames.append("")
                 }
@@ -164,6 +164,14 @@ extension WorkflowCanvasView {
             }
         }
 
+        // 节点类型标签：UUID型节点（长度>30且包含连字符）隐藏类型标签，避免显示冗长UUID
+        let typeLabel: String = {
+            if node.type.count > 30 && node.type.contains("-") {
+                return ""
+            }
+            return node.type
+        }()
+
         return NodeRenderData(
             nodeSize: size,
             headerHeight: headerHeight,
@@ -173,7 +181,7 @@ extension WorkflowCanvasView {
             inputSlotNames: inputNames,
             widgetLabels: widgetLabels,
             displayTitle: node.displayTitle,
-            typeLabel: node.type
+            typeLabel: typeLabel
         )
     }
 

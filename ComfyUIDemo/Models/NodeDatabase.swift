@@ -257,12 +257,32 @@ extension NodeDefinition {
             }
         }
 
-        // 计算节点尺寸（根据参数数量）
+        // 计算节点尺寸（同时考虑控件数量和插槽数量，取最大值避免内容溢出）
         let widgetCount = parameters.count
-        let baseHeight: Double = 80
-        let rowHeight: Double = 22
-        let height = widgetCount > 0 ? baseHeight + Double(widgetCount) * rowHeight + 20 : baseHeight
-        let width: Double = 220
+        let inputCount = inputs.count
+        let outputCount = outputs.count
+        let headerHeight: Double = 30
+        let widgetTopPadding: Double = 6
+        let widgetBottomPadding: Double = 20
+        let widgetRowHeight: Double = 22
+        let slotGap: Double = 20
+        let slotTopPadding: Double = 8
+
+        // 控件所需高度
+        let widgetNeededHeight = widgetCount > 0
+            ? headerHeight + widgetTopPadding + Double(widgetCount) * widgetRowHeight + widgetBottomPadding
+            : headerHeight + widgetBottomPadding
+
+        // 插槽所需高度（取输入/输出插槽数量的最大值）
+        let maxSlotCount = max(inputCount, outputCount)
+        let slotNeededHeight = maxSlotCount > 0
+            ? headerHeight + slotTopPadding + Double(maxSlotCount) * slotGap + 16
+            : headerHeight + 16
+
+        // 最终高度取控件和插槽的最大值，再加底部类型标签空间
+        let height = max(widgetNeededHeight, slotNeededHeight)
+        // 统一节点宽度为280，避免尺寸失衡
+        let width: Double = 280
 
         return NodeModel(
             id: id,

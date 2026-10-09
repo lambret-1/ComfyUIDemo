@@ -136,14 +136,17 @@ extension WorkflowCanvasView {
             drawText(titleText, in: headerRect.insetBy(dx: 8, dy: 6),
                      font: titleFont, color: .white, context: context)
 
-            // 右上角双圈圆点（详情页入口）——与 handleTap 的命中测试保持一致：18 + 6
+            // 右上角详情按钮（info图标）——与 handleTap 的命中测试保持一致
             let infoButtonSize: CGFloat = 18
             let infoButtonX = rect.maxX - infoButtonSize - 6
             let infoButtonY = headerRect.midY - infoButtonSize / 2
             let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
-            context.stroke(Path(ellipseIn: infoButtonRect), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
-            let innerInset: CGFloat = 4
-            context.stroke(Path(ellipseIn: infoButtonRect.insetBy(dx: innerInset, dy: innerInset)), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
+            // 圆形背景
+            context.fill(Path(ellipseIn: infoButtonRect), with: .color(.white.opacity(0.25)))
+            context.stroke(Path(ellipseIn: infoButtonRect), with: .color(.white.opacity(0.9)), lineWidth: 1)
+            // "i" 字母
+            let infoFont = UIFont.systemFont(ofSize: 11, weight: .bold)
+            drawText("i", in: infoButtonRect, font: infoFont, color: .white, alignment: .center, context: context)
 
             // 控件区域
             let widgetTop = headerRect.maxY + 6
@@ -171,18 +174,20 @@ extension WorkflowCanvasView {
                 )
             }
 
-            // 节点类型标签：交互时跳过（降级渲染）
+            // 节点类型标签：交互时跳过（降级渲染），UUID型节点隐藏
             if !isInteracting {
-                let typeLabelHeight: CGFloat = 16
-                let typeRect = CGRect(
-                    x: rect.minX,
-                    y: rect.maxY - typeLabelHeight,
-                    width: rect.width,
-                    height: typeLabelHeight
-                )
                 let typeLabel = render?.typeLabel ?? node.type
-                drawText(typeLabel, in: typeRect.insetBy(dx: 8, dy: 2),
-                         font: typeFont, color: .secondaryLabel, context: context)
+                if !typeLabel.isEmpty {
+                    let typeLabelHeight: CGFloat = 16
+                    let typeRect = CGRect(
+                        x: rect.minX,
+                        y: rect.maxY - typeLabelHeight,
+                        width: rect.width,
+                        height: typeLabelHeight
+                    )
+                    drawText(typeLabel, in: typeRect.insetBy(dx: 8, dy: 2),
+                             font: typeFont, color: .secondaryLabel, context: context)
+                }
             }
 
             // 插槽绘制（圆点始终绘制，名称交互时跳过）
@@ -270,16 +275,23 @@ extension WorkflowCanvasView {
 
             case .text:
                 let text = widget.displayString
-                let isShortEnum = text.count <= 15 && !text.contains(" ") && !text.contains("\n") && controlWidth > 60
+                let isEmpty = text.isEmpty
+                let isShortEnum = !isEmpty && text.count <= 15 && !text.contains(" ") && !text.contains("\n") && controlWidth > 60
                 let textRect = CGRect(x: controlX, y: controlY, width: controlWidth, height: controlHeight)
                 let textShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(textShape.path(in: textRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(textShape.path(in: textRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
 
-                let textMaxWidth = isShortEnum ? controlWidth - 16 : controlWidth - 8
-                let displayText = truncatedText(text, font: valueFont, maxWidth: textMaxWidth)
-                drawText(displayText, in: textRect.insetBy(dx: 4, dy: 2),
-                         font: valueFont, color: .label, context: context)
+                if isEmpty {
+                    // 空值显示灰色占位符
+                    drawText("点击编辑", in: textRect.insetBy(dx: 4, dy: 2),
+                             font: valueFont, color: .tertiaryLabel, context: context)
+                } else {
+                    let textMaxWidth = isShortEnum ? controlWidth - 16 : controlWidth - 8
+                    let displayText = truncatedText(text, font: valueFont, maxWidth: textMaxWidth)
+                    drawText(displayText, in: textRect.insetBy(dx: 4, dy: 2),
+                             font: valueFont, color: .label, context: context)
+                }
 
                 if isShortEnum {
                     let arrowX = textRect.maxX - 12
@@ -323,18 +335,18 @@ extension WorkflowCanvasView {
                 context.fill(Path(ellipseIn: dotRect), with: .color(slotColor))
                 context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
 
-                // 插槽名称：交互时跳过
+                // 插槽名称：交互时跳过（输出插槽名称放在圆点右侧，避免与节点内容重叠）
                 if !isInteracting, let slotName = slot.name, !slotName.isEmpty {
                     let displayName = render?.outputSlotNames[safe: index] ?? {
                         let localized = SlotLocalization.localized(for: slotName)
                         return truncatedText(localized, font: UIFont.systemFont(ofSize: 9), maxWidth: 70)
                     }()
                     if !displayName.isEmpty {
-                        let labelPoint = CGPoint(x: point.x - dotSize / 2 - 5, y: point.y)
+                        let labelPoint = CGPoint(x: point.x + dotSize / 2 + 5, y: point.y)
                         drawTextAtPoint(displayName, at: labelPoint,
                                         font: UIFont.systemFont(ofSize: 9),
                                         color: .secondaryLabel,
-                                        anchor: .trailing, context: context)
+                                        anchor: .leading, context: context)
                     }
                 }
             }
@@ -362,7 +374,7 @@ extension WorkflowCanvasView {
                 if !isInteracting, let slotName = slot.name, !slotName.isEmpty {
                     let displayName = render?.inputSlotNames[safe: index] ?? {
                         let localized = SlotLocalization.localized(for: slotName)
-                        return truncatedText(localized, font: UIFont.systemFont(ofSize: 9), maxWidth: 60)
+                        return truncatedText(localized, font: UIFont.systemFont(ofSize: 9), maxWidth: 90)
                     }()
                     if !displayName.isEmpty {
                         let labelPoint = CGPoint(x: point.x + dotSize / 2 + 5, y: point.y)

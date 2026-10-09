@@ -12,14 +12,13 @@ struct TemplateTabBar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                // 分类标题 + 模板标签（用Group替代Section，避免HStack中Section布局死循环）
+                // 分类标题（紧凑显示，不占用过多空间）
                 ForEach(WorkflowTemplateDatabase.allCategories, id: \.self) { category in
                     Group {
                         Text(category)
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .padding(.leading, 4)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.6))
+                            .padding(.leading, 2)
                         ForEach(WorkflowTemplateDatabase.templates(in: category)) { template in
                             TemplateTabChip(
                                 template: template,
@@ -56,17 +55,17 @@ private struct TemplateTabChip: View {
                     .font(.caption)
                 Text(template.name)
                     .font(.caption)
-                    .fontWeight(.medium)
+                    .fontWeight(isSelected ? .bold : .medium)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(
                 Capsule()
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(.tertiarySystemBackground))
+                    .fill(isSelected ? Color.accentColor.opacity(0.25) : Color(.tertiarySystemBackground))
             )
             .overlay(
                 Capsule()
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
+                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
             )
             .foregroundColor(isSelected ? .accentColor : .primary)
         }
