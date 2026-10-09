@@ -182,9 +182,9 @@ struct WorkflowCanvasView: View {
                 .overlay(alignment: .topLeading) {
                     if let nodeId = selectedNodeIdForEdit, let node = workflow.nodeMap[nodeId] {
                         editableControls(for: node)
+                            .scaleEffect(zoom, anchor: .topLeading)
                             .offset(x: node.position.x * zoom + offset.x,
                                     y: node.position.y * zoom + offset.y)
-                            .scaleEffect(zoom, anchor: .topLeading)
                     }
                 }
 
