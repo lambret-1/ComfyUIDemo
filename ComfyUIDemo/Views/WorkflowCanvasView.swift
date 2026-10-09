@@ -279,12 +279,12 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 控件绘制
 
-    /// 绘制节点内部控件（只读展示，带真实参数名标签，按类型渲染不同控件外观）
+    /// 绘制节点内部控件（只读展示，参数名与控件同一行显示，按类型渲染不同控件外观）
     private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], names: [String], in rect: CGRect) {
-        let labelHeight: CGFloat = 10
         let controlHeight: CGFloat = 16
-        let rowSpacing: CGFloat = 5
-        let rowHeight = labelHeight + controlHeight + rowSpacing
+        let rowSpacing: CGFloat = 6
+        let labelWidth: CGFloat = 55
+        let labelFont = UIFont.systemFont(ofSize: 8)
         var currentY = rect.minY
 
         for (index, widget) in widgets.enumerated() {
@@ -293,14 +293,14 @@ struct WorkflowCanvasView: View {
             if case .text = widget.widgetKind {
                 let font = UIFont.systemFont(ofSize: 8)
                 let textHeight = widget.displayString.boundingRect(
-                    with: CGSize(width: rect.width - 8, height: .greatestFiniteMagnitude),
+                    with: CGSize(width: rect.width - labelWidth - 8, height: .greatestFiniteMagnitude),
                     options: [.usesLineFragmentOrigin, .usesFontLeading],
                     attributes: [.font: font],
                     context: nil
                 ).height
                 neededControlHeight = max(controlHeight, ceil(textHeight) + 4)
             }
-            let totalRowHeight = labelHeight + neededControlHeight + rowSpacing
+            let totalRowHeight = neededControlHeight + rowSpacing
 
             guard currentY + totalRowHeight <= rect.maxY else {
                 if currentY < rect.maxY {
@@ -313,20 +313,25 @@ struct WorkflowCanvasView: View {
                 break
             }
 
-            // 参数名标签（上方，小号灰色）
+            // 参数名标签（左侧，固定宽度，右对齐，与控件垂直居中）
             let rawName = index < names.count ? names[index] : "参数\(index + 1)"
             let paramName = SlotLocalization.localized(for: rawName)
-            let labelText = Text(paramName)
+            let displayName = truncatedText(paramName, font: labelFont, maxWidth: labelWidth - 4)
+            let labelText = Text(displayName)
                 .font(.system(size: 8))
                 .foregroundColor(.secondary)
-            context.draw(labelText, in: CGRect(x: rect.minX, y: currentY, width: rect.width, height: labelHeight))
+            let labelCenterY = currentY + neededControlHeight / 2
+            context.draw(labelText, at: CGPoint(x: rect.minX + labelWidth - 2, y: labelCenterY), anchor: .trailing)
 
-            let controlY = currentY + labelHeight + 1
+            // 控件区域（右侧，剩余宽度）
+            let controlX = rect.minX + labelWidth + 6
+            let controlWidth = rect.width - labelWidth - 6
+            let controlY = currentY
 
             switch widget.widgetKind {
             case .toggle:
                 let isOn = widget.boolValue
-                let toggleRect = CGRect(x: rect.minX, y: controlY, width: 28, height: 14)
+                let toggleRect = CGRect(x: controlX, y: controlY + 1, width: 28, height: 14)
                 let toggleShape = RoundedRectangle(cornerRadius: 7)
                 context.fill(toggleShape.path(in: toggleRect), with: .color(isOn ? .green : .gray.opacity(0.4)))
                 let knobX = isOn ? toggleRect.maxX - 11 : toggleRect.minX + 2
@@ -335,12 +340,12 @@ struct WorkflowCanvasView: View {
                 let statusText = Text(isOn ? "开" : "关")
                     .font(.system(size: 8))
                     .foregroundColor(.secondary)
-                context.draw(statusText, at: CGPoint(x: toggleRect.maxX + 4, y: controlY + 7), anchor: .leading)
+                context.draw(statusText, at: CGPoint(x: toggleRect.maxX + 4, y: controlY + 8), anchor: .leading)
 
             case .number:
                 // 数字框 + 迷你滑块条
                 let numWidth: CGFloat = 52
-                let numRect = CGRect(x: rect.minX, y: controlY, width: numWidth, height: controlHeight)
+                let numRect = CGRect(x: controlX, y: controlY, width: numWidth, height: controlHeight)
                 let numShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(numShape.path(in: numRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(numShape.path(in: numRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
@@ -351,12 +356,11 @@ struct WorkflowCanvasView: View {
 
                 // 迷你滑块条（仅外观，不可交互）
                 let sliderX = numRect.maxX + 6
-                let sliderWidth = max(0, rect.width - sliderX)
+                let sliderWidth = max(0, controlWidth - numWidth - 6)
                 if sliderWidth > 20 {
                     let sliderRect = CGRect(x: sliderX, y: controlY + 6, width: sliderWidth, height: 4)
                     context.fill(Path(roundedRect: sliderRect, cornerSize: CGSize(width: 2, height: 2)),
                                with: .color(.gray.opacity(0.25)))
-                    // 滑块圆点（默认在中间位置）
                     let knobX = sliderX + sliderWidth * 0.5
                     let knobRect = CGRect(x: knobX - 4, y: controlY + 3, width: 8, height: 10)
                     context.fill(Path(ellipseIn: knobRect), with: .color(.blue))
@@ -365,7 +369,7 @@ struct WorkflowCanvasView: View {
             case .text:
                 let text = widget.displayString
                 let isShortEnum = text.count <= 20 && !text.contains(" ") && !text.contains("\n")
-                let textRect = CGRect(x: rect.minX, y: controlY, width: rect.width, height: neededControlHeight)
+                let textRect = CGRect(x: controlX, y: controlY, width: controlWidth, height: neededControlHeight)
                 let textShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(textShape.path(in: textRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(textShape.path(in: textRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
