@@ -320,7 +320,8 @@ struct WorkflowCanvasView: View {
             }
 
             // 参数名标签（上方，小号灰色）
-            let paramName = index < names.count ? names[index] : "参数\(index + 1)"
+            let rawName = index < names.count ? names[index] : "参数\(index + 1)"
+            let paramName = SlotLocalization.localized(for: rawName)
             let labelText = Text(paramName)
                 .font(.system(size: 8))
                 .foregroundColor(.secondary)
@@ -406,10 +407,13 @@ struct WorkflowCanvasView: View {
 
     /// 绘制节点的输入/输出插槽及名称标签
     private func drawSlots(context: GraphicsContext, node: NodeModel) {
+        let dotSize: CGFloat = 10
+        let labelFont = UIFont.systemFont(ofSize: 10)
+
+        // 输出插槽（节点右侧）：标签在圆点右侧，左对齐，最大宽度120pt
         if let outputs = node.outputs {
             for (index, slot) in outputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: true)
-                let dotSize: CGFloat = 10
                 let dotRect = CGRect(
                     x: point.x - dotSize / 2,
                     y: point.y - dotSize / 2,
@@ -421,38 +425,61 @@ struct WorkflowCanvasView: View {
                 context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
 
                 if let slotName = slot.name, !slotName.isEmpty {
-                    let nameText = Text(slotName)
+                    let localized = SlotLocalization.localized(for: slotName)
+                    let maxWidth: CGFloat = 120
+                    let displayName = truncatedText(localized, font: labelFont, maxWidth: maxWidth)
+                    let nameText = Text(displayName)
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
-                    let labelPoint = CGPoint(x: point.x - dotSize / 2 - 4, y: point.y)
-                    context.draw(nameText, at: labelPoint, anchor: .trailing)
-                }
-            }
-        }
-
-        if let inputs = node.inputs {
-            for (index, slot) in inputs.enumerated() {
-                let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
-                let dotSize: CGFloat = 10
-                let dotRect = CGRect(
-                    x: point.x - dotSize / 2,
-                    y: point.y - dotSize / 2,
-                    width: dotSize,
-                    height: dotSize
-                )
-                let slotColor = SlotTypeColor.color(for: slot.type)
-                context.fill(Path(ellipseIn: dotRect), with: .color(slotColor))
-                context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
-
-                if let slotName = slot.name, !slotName.isEmpty {
-                    let nameText = Text(slotName)
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                    let labelPoint = CGPoint(x: point.x + dotSize / 2 + 4, y: point.y)
+                    let labelPoint = CGPoint(x: point.x + dotSize / 2 + 5, y: point.y)
                     context.draw(nameText, at: labelPoint, anchor: .leading)
                 }
             }
         }
+
+        // 输入插槽（节点左侧）：标签在圆点左侧，右对齐，最大宽度100pt
+        if let inputs = node.inputs {
+            for (index, slot) in inputs.enumerated() {
+                let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
+                let dotRect = CGRect(
+                    x: point.x - dotSize / 2,
+                    y: point.y - dotSize / 2,
+                    width: dotSize,
+                    height: dotSize
+                )
+                let slotColor = SlotTypeColor.color(for: slot.type)
+                context.fill(Path(ellipseIn: dotRect), with: .color(slotColor))
+                context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
+
+                if let slotName = slot.name, !slotName.isEmpty {
+                    let localized = SlotLocalization.localized(for: slotName)
+                    let maxWidth: CGFloat = 100
+                    let displayName = truncatedText(localized, font: labelFont, maxWidth: maxWidth)
+                    let nameText = Text(displayName)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    let labelPoint = CGPoint(x: point.x - dotSize / 2 - 5, y: point.y)
+                    context.draw(nameText, at: labelPoint, anchor: .trailing)
+                }
+            }
+        }
+    }
+
+    /// 文本截断：超过最大宽度时显示省略号
+    private func truncatedText(_ text: String, font: UIFont, maxWidth: CGFloat) -> String {
+        let nsText = text as NSString
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let textWidth = nsText.size(withAttributes: attributes).width
+        if textWidth <= maxWidth { return text }
+        // 逐步截断直到符合宽度
+        var result = text
+        while result.count > 1 {
+            result = String(result.dropLast())
+            let candidate = result + "…"
+            let candidateWidth = (candidate as NSString).size(withAttributes: attributes).width
+            if candidateWidth <= maxWidth { return candidate }
+        }
+        return "…"
     }
 
     /// 计算插槽在画布中的坐标

@@ -62,7 +62,8 @@ struct NodeDetailSheet: View {
                 Section("控件参数（可编辑）") {
                     if let widgets = node.widgetsValues, !widgets.isEmpty {
                         ForEach(Array(widgets.enumerated()), id: \.offset) { index, widget in
-                            let paramName = index < node.widgetNames.count ? node.widgetNames[index] : "参数\(index + 1)"
+                            let rawName = index < node.widgetNames.count ? node.widgetNames[index] : "参数\(index + 1)"
+                            let paramName = SlotLocalization.bilingual(for: rawName)
                             editableWidgetRow(paramName: paramName, index: index, widget: widget)
                         }
                     } else {
@@ -166,7 +167,11 @@ struct NodeDetailSheet: View {
             Circle()
                 .fill(SlotTypeColor.color(for: slot.type))
                 .frame(width: 10, height: 10)
-            Text("[\(index)] \(slot.name ?? "未命名")")
+            if let name = slot.name, !name.isEmpty {
+                Text(SlotLocalization.bilingual(for: name))
+            } else {
+                Text("[\(index)] 未命名")
+            }
             Spacer()
             Text(slot.type ?? "未知")
                 .foregroundColor(.secondary)
