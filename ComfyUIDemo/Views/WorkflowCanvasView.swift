@@ -27,6 +27,8 @@ struct WorkflowCanvasView: View {
     @State private var editingText: String = ""
     /// 是否显示单参数编辑弹窗
     @State private var showWidgetEditor: Bool = false
+    /// 当前正在拖动的滑块（nodeId + index + 起始X + 起始值）
+    @State private var trackingSlider: (nodeId: Int, index: Int, startX: CGFloat, startValue: Double)?
 
     var body: some View {
         GeometryReader { geometry in
@@ -57,12 +59,28 @@ struct WorkflowCanvasView: View {
                     SimultaneousGesture(
                         DragGesture()
                             .onChanged { value in
-                                offset = CGPoint(
-                                    x: lastOffset.x + value.translation.width,
-                                    y: lastOffset.y + value.translation.height
-                                )
+                                // 第一次变化时判断起点是否在滑块区域
+                                if trackingSlider == nil {
+                                    let worldX = (value.startLocation.x - offset.x) / zoom
+                                    let worldY = (value.startLocation.y - offset.y) / zoom
+                                    let worldPoint = CGPoint(x: worldX, y: worldY)
+                                    trackingSlider = hitTestSlider(point: worldPoint)
+                                }
+
+                                if let tracking = trackingSlider {
+                                    // 拖动滑块，根据世界坐标X更新数值
+                                    let worldX = (value.location.x - offset.x) / zoom
+                                    updateSliderValue(nodeId: tracking.nodeId, index: tracking.index, worldX: worldX)
+                                } else {
+                                    // 平移画布
+                                    offset = CGPoint(
+                                        x: lastOffset.x + value.translation.width,
+                                        y: lastOffset.y + value.translation.height
+                                    )
+                                }
                             }
                             .onEnded { _ in
+                                trackingSlider = nil
                                 lastOffset = offset
                             },
                         MagnificationGesture()
@@ -418,14 +436,22 @@ struct WorkflowCanvasView: View {
                     .foregroundColor(.primary)
                 context.draw(numText, in: numRect.insetBy(dx: 4, dy: 1))
 
-                // 迷你滑块条（仅外观，不可交互）
+                // 迷你滑块条（可拖动交互，旋钮位置根据数值比例显示）
                 let sliderX = numRect.maxX + 6
                 let sliderWidth = max(0, controlWidth - numWidth - 6)
                 if sliderWidth > 20 {
                     let sliderRect = CGRect(x: sliderX, y: controlY + 6, width: sliderWidth, height: 4)
                     context.fill(Path(roundedRect: sliderRect, cornerSize: CGSize(width: 2, height: 2)),
                                with: .color(.gray.opacity(0.25)))
-                    let knobX = sliderX + sliderWidth * 0.5
+                    // 根据数值计算旋钮位置（范围0-100）
+                    let numericValue: Double
+                    switch widget {
+                    case .int(let v): numericValue = Double(v)
+                    case .double(let v): numericValue = v
+                    default: numericValue = 0
+                    }
+                    let ratio = max(0, min(1, numericValue / 100))
+                    let knobX = sliderX + sliderWidth * ratio
                     let knobRect = CGRect(x: knobX - 4, y: controlY + 3, width: 8, height: 10)
                     context.fill(Path(ellipseIn: knobRect), with: .color(.blue))
                 }
@@ -639,6 +665,80 @@ struct WorkflowCanvasView: View {
             node.widgetsValues = widgets
             workflow.nodes[nodeIndex] = node
         }
+    }
+
+    /// 命中测试：判断点击位置是否在滑块区域，返回滑块信息
+    private func hitTestSlider(point: CGPoint) -> (nodeId: Int, index: Int, startX: CGFloat, startValue: Double)? {
+        for node in workflow.nodes {
+            let rect = CGRect(origin: node.position, size: node.nodeSize)
+            let headerHeight = min(30, rect.height * 0.4)
+            let widgetTop = rect.minY + headerHeight + 6
+            let leftInset: CGFloat = 75
+            let rightInset: CGFloat = 85
+            let widgetX = rect.minX + leftInset
+            let widgetWidth = rect.width - leftInset - rightInset
+            let labelWidth: CGFloat = 48
+            let numWidth: CGFloat = 48
+            let rowHeight: CGFloat = 22
+
+            guard let widgets = node.widgetsValues else { continue }
+            for (index, widget) in widgets.enumerated() {
+                guard case .number = widget.widgetKind else { continue }
+                let controlY = widgetTop + CGFloat(index) * rowHeight
+                let sliderX = widgetX + labelWidth + 4 + numWidth + 6
+                let sliderWidth = widgetWidth - labelWidth - 4 - numWidth - 6
+                guard sliderWidth > 20 else { continue }
+                // 扩大点击区域
+                let hitRect = CGRect(x: sliderX - 6, y: controlY, width: sliderWidth + 12, height: 16)
+                if hitRect.contains(point) {
+                    let startValue: Double
+                    switch widget {
+                    case .int(let v): startValue = Double(v)
+                    case .double(let v): startValue = v
+                    default: startValue = 0
+                    }
+                    return (node.id, index, point.x, startValue)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// 根据世界坐标X更新滑块数值（范围0-100，根据滑块位置比例计算）
+    private func updateSliderValue(nodeId: Int, index: Int, worldX: CGFloat) {
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
+        var node = workflow.nodes[nodeIndex]
+        guard var widgets = node.widgetsValues, index < widgets.count else { return }
+        let rect = CGRect(origin: node.position, size: node.nodeSize)
+        let headerHeight = min(30, rect.height * 0.4)
+        let widgetTop = rect.minY + headerHeight + 6
+        let leftInset: CGFloat = 75
+        let rightInset: CGFloat = 85
+        let widgetX = rect.minX + leftInset
+        let widgetWidth = rect.width - leftInset - rightInset
+        let labelWidth: CGFloat = 48
+        let numWidth: CGFloat = 48
+        let sliderX = widgetX + labelWidth + 4 + numWidth + 6
+        let sliderWidth = widgetWidth - labelWidth - 4 - numWidth - 6
+        guard sliderWidth > 0 else { return }
+
+        // 计算比例0-1
+        var ratio = (worldX - sliderX) / sliderWidth
+        ratio = max(0, min(1, ratio))
+        // 数值范围0-100，取一位小数
+        let newValue = Double(round(ratio * 1000) / 10)
+
+        let original = widgets[index]
+        switch original {
+        case .int:
+            widgets[index] = .int(Int(newValue))
+        case .double:
+            widgets[index] = .double(newValue)
+        default:
+            widgets[index] = .double(newValue)
+        }
+        node.widgetsValues = widgets
+        workflow.nodes[nodeIndex] = node
     }
 
     /// 保存单参数编辑结果（严格保持原始值类型，避免类型转换导致显示异常）
