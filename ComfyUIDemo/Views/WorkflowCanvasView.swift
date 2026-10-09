@@ -29,6 +29,14 @@ struct WorkflowCanvasView: View {
     @State private var showWidgetEditor: Bool = false
     /// 当前选中用于编辑的节点ID（点击节点空白区域选中，点击画布空白区域取消）
     @State private var selectedNodeIdForEdit: Int?
+    /// 连线状态：是否正在连线
+    @State private var isConnecting: Bool = false
+    /// 连线起点（源节点ID + 输出插槽索引）
+    @State private var connectingFrom: (nodeId: Int, slotIndex: Int)?
+    /// 连线当前终点（手指位置，世界坐标）
+    @State private var connectingTo: CGPoint?
+    /// 连线起点的世界坐标（用于绘制预览线）
+    @State private var connectingFromPoint: CGPoint?
 
     var body: some View {
         GeometryReader { geometry in
@@ -52,6 +60,16 @@ struct WorkflowCanvasView: View {
                     // 层级2：连线
                     drawLinks(context: context)
 
+                    // 层级2.5：连线预览（正在连线时）
+                    if isConnecting, let fromPoint = connectingFromPoint, let toPoint = connectingTo {
+                        let previewPath = bezierLinkPath(from: fromPoint, to: toPoint)
+                        context.stroke(previewPath, with: .color(.blue.opacity(0.7)), lineWidth: 3, style: StrokeStyle(lineDash: [8, 4]))
+                        // 绘制终点圆点
+                        var endCircle = Path()
+                        endCircle.addEllipse(in: CGRect(x: toPoint.x - 6, y: toPoint.y - 6, width: 12, height: 12))
+                        context.fill(endCircle, with: .color(.blue))
+                    }
+
                     // 层级3：节点
                     drawNodes(context: context, highlightedId: highlightedNodeId)
                 }
@@ -59,11 +77,33 @@ struct WorkflowCanvasView: View {
                     SimultaneousGesture(
                         DragGesture()
                             .onChanged { value in
+                                // 正在连线时，更新预览线终点
+                                if isConnecting {
+                                    let worldX = (value.location.x - offset.x) / zoom
+                                    let worldY = (value.location.y - offset.y) / zoom
+                                    connectingTo = CGPoint(x: worldX, y: worldY)
+                                    return
+                                }
+
+                                let startWorldX = (value.startLocation.x - offset.x) / zoom
+                                let startWorldY = (value.startLocation.y - offset.y) / zoom
+                                let startPoint = CGPoint(x: startWorldX, y: startWorldY)
+
+                                // 检查是否点击了输出插槽（开始连线，无需选中节点）
+                                if let outputSlot = hitTestOutputSlot(point: startPoint) {
+                                    isConnecting = true
+                                    connectingFrom = outputSlot
+                                    connectingFromPoint = getSlotPosition(
+                                        node: workflow.nodeMap[outputSlot.nodeId]!,
+                                        slotIndex: outputSlot.slotIndex,
+                                        isOutput: true
+                                    )
+                                    connectingTo = startPoint
+                                    return
+                                }
+
                                 // 只有当节点被选中时，才允许滑块拖动编辑
                                 if selectedNodeIdForEdit != nil {
-                                    let startWorldX = (value.startLocation.x - offset.x) / zoom
-                                    let startWorldY = (value.startLocation.y - offset.y) / zoom
-                                    let startPoint = CGPoint(x: startWorldX, y: startWorldY)
                                     if let slider = hitTestSlider(point: startPoint),
                                        slider.nodeId == selectedNodeIdForEdit {
                                         // 选中节点的滑块拖动 → 更新参数
@@ -78,7 +118,27 @@ struct WorkflowCanvasView: View {
                                     y: lastOffset.y + value.translation.height
                                 )
                             }
-                            .onEnded { _ in
+                            .onEnded { value in
+                                // 正在连线时，检查终点是否在输入插槽上
+                                if isConnecting {
+                                    let worldX = (value.location.x - offset.x) / zoom
+                                    let worldY = (value.location.y - offset.y) / zoom
+                                    let endPoint = CGPoint(x: worldX, y: worldY)
+
+                                    if let inputSlot = hitTestInputSlot(point: endPoint),
+                                       let from = connectingFrom {
+                                        // 创建连线
+                                        createLink(from: from, to: inputSlot)
+                                    }
+
+                                    // 重置连线状态
+                                    isConnecting = false
+                                    connectingFrom = nil
+                                    connectingFromPoint = nil
+                                    connectingTo = nil
+                                    return
+                                }
+
                                 lastOffset = offset
                             },
                         MagnificationGesture()
@@ -98,6 +158,11 @@ struct WorkflowCanvasView: View {
                     let worldX = (location.x - offset.x) / zoom
                     let worldY = (location.y - offset.y) / zoom
                     let worldPoint = CGPoint(x: worldX, y: worldY)
+
+                    // 点击输出插槽时不做处理（连线由DragGesture处理）
+                    if hitTestOutputSlot(point: worldPoint) != nil {
+                        return
+                    }
 
                     // 查找点击的节点
                     var hitNode: NodeModel?
@@ -753,6 +818,67 @@ struct WorkflowCanvasView: View {
             }
         }
         return nil
+    }
+
+    // MARK: - 插槽命中测试
+
+    /// 命中测试：判断点击位置是否在输出插槽上，返回节点ID和插槽索引
+    private func hitTestOutputSlot(point: CGPoint) -> (nodeId: Int, slotIndex: Int)? {
+        let hitRadius: CGFloat = 12 // 扩大点击区域
+        for node in workflow.nodes {
+            guard let outputs = node.outputs, !outputs.isEmpty else { continue }
+            for (index, _) in outputs.enumerated() {
+                let slotPos = getSlotPosition(node: node, slotIndex: index, isOutput: true)
+                let distance = hypot(point.x - slotPos.x, point.y - slotPos.y)
+                if distance <= hitRadius {
+                    return (node.id, index)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// 命中测试：判断点击位置是否在输入插槽上，返回节点ID和插槽索引
+    private func hitTestInputSlot(point: CGPoint) -> (nodeId: Int, slotIndex: Int)? {
+        let hitRadius: CGFloat = 12 // 扩大点击区域
+        for node in workflow.nodes {
+            guard let inputs = node.inputs, !inputs.isEmpty else { continue }
+            for (index, _) in inputs.enumerated() {
+                let slotPos = getSlotPosition(node: node, slotIndex: index, isOutput: false)
+                let distance = hypot(point.x - slotPos.x, point.y - slotPos.y)
+                if distance <= hitRadius {
+                    return (node.id, index)
+                }
+            }
+        }
+        return nil
+    }
+
+    // MARK: - 创建连线
+
+    /// 创建连线：从源节点输出插槽到目标节点输入插槽
+    private func createLink(from: (nodeId: Int, slotIndex: Int), to: (nodeId: Int, slotIndex: Int)) {
+        // 不能连接到自己
+        guard from.nodeId != to.nodeId else { return }
+
+        // 生成唯一连线ID
+        let newLinkId = (workflow.links.map { $0.id }.max() ?? 0) + 1
+
+        // 获取源插槽的数据类型
+        let sourceType = workflow.nodeMap[from.nodeId]?.outputs?[safe: from.slotIndex]?.type
+
+        // 创建连线
+        let newLink = LinkModel(
+            id: newLinkId,
+            sourceId: from.nodeId,
+            sourceSlot: from.slotIndex,
+            targetId: to.nodeId,
+            targetSlot: to.slotIndex,
+            linkType: sourceType
+        )
+
+        // 添加到工作流
+        workflow.links.append(newLink)
     }
 
     /// 根据世界坐标X更新滑块数值（范围0-100，根据滑块位置比例计算）

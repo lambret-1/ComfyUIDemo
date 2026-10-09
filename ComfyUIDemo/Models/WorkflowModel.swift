@@ -341,6 +341,16 @@ struct LinkModel: Codable, Identifiable, Hashable {
         targetSlot = tgtSlot
         linkType = rawArray.count >= 6 ? rawArray[5].stringValue : nil
     }
+
+    /// 成员初始化器（用于创建新连线）
+    init(id: Int, sourceId: Int, sourceSlot: Int, targetId: Int, targetSlot: Int, linkType: String? = nil) {
+        self.id = id
+        self.sourceId = sourceId
+        self.sourceSlot = sourceSlot
+        self.targetId = targetId
+        self.targetSlot = targetSlot
+        self.linkType = linkType
+    }
 }
 
 // MARK: - 分组模型
