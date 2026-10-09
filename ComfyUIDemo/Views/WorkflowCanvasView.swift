@@ -27,6 +27,8 @@ struct WorkflowCanvasView: View {
     @State private var editingText: String = ""
     /// 是否显示单参数编辑弹窗
     @State private var showWidgetEditor: Bool = false
+    /// 当前选中用于编辑的节点ID（点击节点空白区域选中，点击画布空白区域取消）
+    @State private var selectedNodeIdForEdit: Int?
 
     var body: some View {
         GeometryReader { geometry in
@@ -57,23 +59,24 @@ struct WorkflowCanvasView: View {
                     SimultaneousGesture(
                         DragGesture()
                             .onChanged { value in
-                                // 每次都用startLocation判断起点（startLocation在整个手势中不变）
-                                // 不依赖任何持久状态，彻底避免状态重置问题
-                                let startWorldX = (value.startLocation.x - offset.x) / zoom
-                                let startWorldY = (value.startLocation.y - offset.y) / zoom
-                                let startPoint = CGPoint(x: startWorldX, y: startWorldY)
-
-                                if let slider = hitTestSlider(point: startPoint) {
-                                    // 起点在滑块区域 → 整个手势用于拖动滑块
-                                    let currentWorldX = (value.location.x - offset.x) / zoom
-                                    updateSliderValue(nodeId: slider.nodeId, index: slider.index, worldX: currentWorldX)
-                                } else {
-                                    // 起点不在滑块区域 → 平移画布
-                                    offset = CGPoint(
-                                        x: lastOffset.x + value.translation.width,
-                                        y: lastOffset.y + value.translation.height
-                                    )
+                                // 只有当节点被选中时，才允许滑块拖动编辑
+                                if selectedNodeIdForEdit != nil {
+                                    let startWorldX = (value.startLocation.x - offset.x) / zoom
+                                    let startWorldY = (value.startLocation.y - offset.y) / zoom
+                                    let startPoint = CGPoint(x: startWorldX, y: startWorldY)
+                                    if let slider = hitTestSlider(point: startPoint),
+                                       slider.nodeId == selectedNodeIdForEdit {
+                                        // 选中节点的滑块拖动 → 更新参数
+                                        let currentWorldX = (value.location.x - offset.x) / zoom
+                                        updateSliderValue(nodeId: slider.nodeId, index: slider.index, worldX: currentWorldX)
+                                        return
+                                    }
                                 }
+                                // 未选中节点或起点不在滑块区域 → 平移画布
+                                offset = CGPoint(
+                                    x: lastOffset.x + value.translation.width,
+                                    y: lastOffset.y + value.translation.height
+                                )
                             }
                             .onEnded { _ in
                                 lastOffset = offset
@@ -96,49 +99,80 @@ struct WorkflowCanvasView: View {
                     let worldY = (location.y - offset.y) / zoom
                     let worldPoint = CGPoint(x: worldX, y: worldY)
 
+                    // 查找点击的节点
+                    var hitNode: NodeModel?
                     for node in workflow.nodes {
                         let rect = CGRect(origin: node.position, size: node.nodeSize)
-                        let headerHeight = min(30, rect.height * 0.4)
-
-                        // 1. 右上角双圈圆点 → 弹出详情页
-                        let infoButtonSize: CGFloat = 24
-                        let infoButtonX = rect.maxX - infoButtonSize - 3
-                        let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
-                        let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
-                        if infoButtonRect.contains(worldPoint) {
-                            selectedNodeId = node.id
-                            return
+                        if rect.contains(worldPoint) {
+                            hitNode = node
+                            break
                         }
+                    }
 
-                        // 2. 控件区域 → 计算点击的具体参数
-                        let widgetTop = rect.minY + headerHeight + 6
-                        let widgetBottom = rect.maxY - 20
-                        let leftInset: CGFloat = 75
-                        let rightInset: CGFloat = 85
-                        let widgetX = rect.minX + leftInset
-                        let widgetWidth = rect.width - leftInset - rightInset
-                        let widgetRect = CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
-
-                        guard widgetRect.contains(worldPoint),
-                              let widgets = node.widgetsValues, !widgets.isEmpty else { continue }
-
-                        // 计算点击的参数索引
-                        let rowHeight: CGFloat = 22
-                        let relativeY = worldPoint.y - widgetTop
-                        let index = Int(relativeY / rowHeight)
-                        guard index >= 0, index < widgets.count else { continue }
-
-                        let widget = widgets[index]
-                        // 点击开关 → 直接切换
-                        if case .toggle = widget.widgetKind {
-                            toggleWidget(nodeId: node.id, index: index)
-                            return
-                        }
-                        // 点击文本框/数字框 → 弹出单参数编辑
-                        editingWidget = (node.id, index)
-                        editingText = widget.displayString
-                        showWidgetEditor = true
+                    guard let node = hitNode else {
+                        // 点击画布空白区域 → 取消选中状态
+                        selectedNodeIdForEdit = nil
                         return
+                    }
+
+                    let rect = CGRect(origin: node.position, size: node.nodeSize)
+                    let headerHeight = min(30, rect.height * 0.4)
+
+                    // 1. 右上角双圈圆点 → 弹出详情页（不受选中状态限制）
+                    let infoButtonSize: CGFloat = 24
+                    let infoButtonX = rect.maxX - infoButtonSize - 3
+                    let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
+                    let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
+                    if infoButtonRect.contains(worldPoint) {
+                        selectedNodeId = node.id
+                        return
+                    }
+
+                    // 2. 计算控件区域（与drawNodes一致的动态边距）
+                    let widgetTop = rect.minY + headerHeight + 6
+                    let widgetBottom = rect.maxY - 20
+                    let baseLeftInset: CGFloat = 75
+                    let baseRightInset: CGFloat = 85
+                    let minWidgetWidth: CGFloat = 60
+                    var leftInset = baseLeftInset
+                    var rightInset = baseRightInset
+                    if rect.width - leftInset - rightInset < minWidgetWidth {
+                        let available = rect.width - minWidgetWidth
+                        let totalInset = baseLeftInset + baseRightInset
+                        let scale = min(1.0, available / totalInset)
+                        leftInset = baseLeftInset * scale
+                        rightInset = baseRightInset * scale
+                    }
+                    let widgetX = rect.minX + leftInset
+                    let widgetWidth = rect.width - leftInset - rightInset
+                    let widgetRect = CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
+
+                    let isInWidgetArea = widgetRect.contains(worldPoint)
+                    let hasWidgets = (node.widgetsValues?.count ?? 0) > 0
+
+                    if isInWidgetArea && hasWidgets {
+                        // 点击控件区域
+                        if selectedNodeIdForEdit == node.id {
+                            // 节点已选中 → 编辑参数
+                            let rowHeight: CGFloat = 22
+                            let relativeY = worldPoint.y - widgetTop
+                            let index = Int(relativeY / rowHeight)
+                            guard index >= 0, index < (node.widgetsValues?.count ?? 0) else { return }
+                            let widget = node.widgetsValues![index]
+                            if case .toggle = widget.widgetKind {
+                                toggleWidget(nodeId: node.id, index: index)
+                            } else {
+                                editingWidget = (node.id, index)
+                                editingText = widget.displayString
+                                showWidgetEditor = true
+                            }
+                        } else {
+                            // 节点未选中 → 先选中节点
+                            selectedNodeIdForEdit = node.id
+                        }
+                    } else {
+                        // 点击节点空白区域（header或控件区外）→ 选中节点
+                        selectedNodeIdForEdit = node.id
                     }
                 }
                 .sheet(item: Binding(
@@ -307,9 +341,15 @@ struct WorkflowCanvasView: View {
             let rect = CGRect(origin: node.position, size: node.nodeSize)
             let shape = RoundedRectangle(cornerRadius: 8)
 
-            // 高亮节点发光效果
+            // 高亮节点发光效果（搜索定位）
             if highlightedId == node.id {
                 context.fill(shape.path(in: rect.insetBy(dx: -6, dy: -6)), with: .color(.yellow.opacity(0.4)))
+            }
+
+            // 选中编辑状态：蓝色发光边框
+            if selectedNodeIdForEdit == node.id {
+                context.fill(shape.path(in: rect.insetBy(dx: -4, dy: -4)), with: .color(.blue.opacity(0.3)))
+                context.stroke(shape.path(in: rect.insetBy(dx: -2, dy: -2)), with: .color(.blue), lineWidth: 2.5)
             }
 
             context.fill(shape.path(in: rect), with: .color(node.bodyColor))
