@@ -189,7 +189,20 @@ struct WorkflowCanvasView: View {
                 .foregroundColor(.white)
             context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
 
-            // 绘制插槽圆点及名称（ComfyUI原生风格：主体不显示type，仅标题+插槽）
+            // 节点类型文字（置于节点底部，避免与插槽名称重叠）
+            let typeLabelHeight: CGFloat = 18
+            let typeRect = CGRect(
+                x: rect.minX,
+                y: rect.maxY - typeLabelHeight,
+                width: rect.width,
+                height: typeLabelHeight
+            )
+            let typeText = Text(node.type)
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            context.draw(typeText, in: typeRect.insetBy(dx: 8, dy: 2))
+
+            // 绘制插槽圆点及名称
             drawSlots(context: context, node: node)
         }
     }
