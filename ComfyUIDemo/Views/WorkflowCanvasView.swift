@@ -138,6 +138,7 @@ struct WorkflowCanvasView: View {
             NodeView(
                 node: node,
                 isSelected: selectedNodeIdForEdit == node.id,
+                isHighlighted: highlightedNodeId == node.id,
                 viewModel: viewModel,
                 onTap: {
                     viewModel.selectNode(node.id)

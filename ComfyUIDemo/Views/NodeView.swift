@@ -9,6 +9,8 @@ struct NodeView: View {
     let node: NodeModel
     /// 是否选中（蓝色发光边框）
     let isSelected: Bool
+    /// 是否高亮（搜索定位时的黄色脉冲）
+    let isHighlighted: Bool
     /// 视图模型（用于参数编辑）
     @ObservedObject var viewModel: WorkflowViewModel
     /// 点击节点空白区域回调
@@ -80,6 +82,15 @@ struct NodeView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.blue, lineWidth: 2.5)
                         .padding(-2)
+                }
+            }
+            // 搜索高亮（黄色发光脉冲）
+            .overlay {
+                if isHighlighted {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.yellow, lineWidth: 3)
+                        .padding(-4)
+                        .shadow(color: .yellow.opacity(0.8), radius: 8)
                 }
             }
             // 点击空白区域选中节点
@@ -155,10 +166,10 @@ struct NodeView: View {
     // MARK: - 输入插槽
 
     private var inputSlotsView: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        ZStack(alignment: .topLeading) {
             if let inputs = node.inputs, !inputs.isEmpty {
                 ForEach(Array(inputs.enumerated()), id: \.offset) { index, slot in
-                    let slotY = headerHeight + 6 + CGFloat(index) * rowHeight
+                    let slotY = headerHeight + 6 + CGFloat(index) * rowHeight + 8
                     HStack(spacing: 4) {
                         Circle()
                             .fill(SlotTypeColor.color(for: slot.type))
@@ -169,21 +180,19 @@ struct NodeView: View {
                             .frame(width: 60, alignment: .leading)
                             .lineLimit(1)
                     }
-                    .frame(height: 16, alignment: .center)
-                    .offset(y: slotY - (headerHeight + 6))
+                    .position(x: 4 + 34, y: slotY)
                 }
             }
         }
-        .padding(.leading, 4)
     }
 
     // MARK: - 输出插槽
 
     private var outputSlotsView: some View {
-        VStack(alignment: .trailing, spacing: 0) {
+        ZStack(alignment: .topTrailing) {
             if let outputs = node.outputs, !outputs.isEmpty {
                 ForEach(Array(outputs.enumerated()), id: \.offset) { index, slot in
-                    let slotY = headerHeight + 6 + CGFloat(index) * rowHeight
+                    let slotY = headerHeight + 6 + CGFloat(index) * rowHeight + 8
                     HStack(spacing: 4) {
                         Text(SlotLocalization.localized(for: slot.name ?? ""))
                             .font(.system(size: 9))
@@ -194,13 +203,10 @@ struct NodeView: View {
                             .fill(SlotTypeColor.color(for: slot.type))
                             .frame(width: 8, height: 8)
                     }
-                    .frame(height: 16, alignment: .center)
-                    .offset(y: slotY - (headerHeight + 6))
+                    .position(x: node.nodeSize.width - 4 - 39, y: slotY)
                 }
             }
         }
-        .padding(.trailing, 4)
-        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     // MARK: - 控件区域
