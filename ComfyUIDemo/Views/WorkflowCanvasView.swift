@@ -341,12 +341,23 @@ struct WorkflowCanvasView: View {
             context.stroke(Path(ellipseIn: infoButtonRect.insetBy(dx: innerInset, dy: innerInset)), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
 
             // 控件区域（居中，避开左右两侧插槽标签区域）
-            // 左侧输入插槽标签最大宽度60pt + 圆点5pt + 间距 = 75pt
-            // 右侧输出插槽标签最大宽度70pt + 圆点5pt + 间距 = 85pt
+            // 边距根据节点宽度动态调整，确保窄节点也有控件显示空间
             let widgetTop = headerRect.maxY + 6
             let widgetBottom = rect.maxY - 20
-            let leftInset: CGFloat = 75
-            let rightInset: CGFloat = 85
+            // 基础边距：左侧输入插槽标签+圆点，右侧输出插槽标签+圆点
+            let baseLeftInset: CGFloat = 75
+            let baseRightInset: CGFloat = 85
+            // 节点较窄时按比例压缩边距，确保控件区域最小宽度60pt
+            let minWidgetWidth: CGFloat = 60
+            var leftInset = baseLeftInset
+            var rightInset = baseRightInset
+            if rect.width - leftInset - rightInset < minWidgetWidth {
+                let available = rect.width - minWidgetWidth
+                let totalInset = baseLeftInset + baseRightInset
+                let scale = min(1.0, available / totalInset)
+                leftInset = baseLeftInset * scale
+                rightInset = baseRightInset * scale
+            }
             let widgetX = rect.minX + leftInset
             let widgetWidth = max(40, rect.width - leftInset - rightInset)
             if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
@@ -668,8 +679,19 @@ struct WorkflowCanvasView: View {
             let rect = CGRect(origin: node.position, size: node.nodeSize)
             let headerHeight = min(30, rect.height * 0.4)
             let widgetTop = rect.minY + headerHeight + 6
-            let leftInset: CGFloat = 75
-            let rightInset: CGFloat = 85
+            // 与drawNodes一致的动态边距计算
+            let baseLeftInset: CGFloat = 75
+            let baseRightInset: CGFloat = 85
+            let minWidgetWidth: CGFloat = 60
+            var leftInset = baseLeftInset
+            var rightInset = baseRightInset
+            if rect.width - leftInset - rightInset < minWidgetWidth {
+                let available = rect.width - minWidgetWidth
+                let totalInset = baseLeftInset + baseRightInset
+                let scale = min(1.0, available / totalInset)
+                leftInset = baseLeftInset * scale
+                rightInset = baseRightInset * scale
+            }
             let widgetX = rect.minX + leftInset
             let widgetWidth = rect.width - leftInset - rightInset
             let labelWidth: CGFloat = 48
@@ -701,8 +723,19 @@ struct WorkflowCanvasView: View {
         let rect = CGRect(origin: node.position, size: node.nodeSize)
         let headerHeight = min(30, rect.height * 0.4)
         let widgetTop = rect.minY + headerHeight + 6
-        let leftInset: CGFloat = 75
-        let rightInset: CGFloat = 85
+        // 与drawNodes一致的动态边距计算
+        let baseLeftInset: CGFloat = 75
+        let baseRightInset: CGFloat = 85
+        let minWidgetWidth: CGFloat = 60
+        var leftInset = baseLeftInset
+        var rightInset = baseRightInset
+        if rect.width - leftInset - rightInset < minWidgetWidth {
+            let available = rect.width - minWidgetWidth
+            let totalInset = baseLeftInset + baseRightInset
+            let scale = min(1.0, available / totalInset)
+            leftInset = baseLeftInset * scale
+            rightInset = baseRightInset * scale
+        }
         let widgetX = rect.minX + leftInset
         let widgetWidth = rect.width - leftInset - rightInset
         let labelWidth: CGFloat = 48
