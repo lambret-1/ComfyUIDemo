@@ -187,8 +187,6 @@ struct WorkflowCanvasView: View {
             let titleText = Text(node.displayTitle)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
             context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 4))
 
             // 节点类型文本（标题下方）
@@ -201,8 +199,6 @@ struct WorkflowCanvasView: View {
             let typeText = Text(node.type)
                 .font(.system(size: 11))
                 .foregroundColor(.primary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.5)
             context.draw(typeText, in: typeRect.insetBy(dx: 8, dy: 6))
 
             // 绘制插槽圆点
