@@ -43,6 +43,10 @@ struct WorkflowCanvasView: View {
     @State private var dragStartNodePos: CGPoint?
     /// 拖动开始时手指的位置（世界坐标）
     @State private var dragStartTouchPos: CGPoint?
+    /// 手势真正的起点位置（解决DragGesture minimumDistance导致startLocation不准确的问题）
+    @State private var actualGestureStartPoint: CGPoint?
+    /// 手势是否已超过拖动阈值（区分点击和拖动）
+    @State private var hasExceededDragThreshold: Bool = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -91,15 +95,29 @@ struct WorkflowCanvasView: View {
                 }
                 .gesture(
                     SimultaneousGesture(
-                        DragGesture()
+                        DragGesture(minimumDistance: 0)
                             .onChanged { value in
+                                // 第一次调用时记录真正的起点位置（解决minimumDistance导致startLocation不准确的问题）
+                                if actualGestureStartPoint == nil {
+                                    let startWorldX = (value.startLocation.x - offset.x) / zoom
+                                    let startWorldY = (value.startLocation.y - offset.y) / zoom
+                                    actualGestureStartPoint = CGPoint(x: startWorldX, y: startWorldY)
+                                    hasExceededDragThreshold = false
+                                }
+
+                                guard let startPoint = actualGestureStartPoint else { return }
+
+                                // 计算当前世界坐标
+                                let currentWorldX = (value.location.x - offset.x) / zoom
+                                let currentWorldY = (value.location.y - offset.y) / zoom
+                                let currentPoint = CGPoint(x: currentWorldX, y: currentWorldY)
+
+                                // 计算移动距离
+                                let moveDistance = hypot(currentPoint.x - startPoint.x, currentPoint.y - startPoint.y)
+
                                 // 正在连线时，更新预览线终点并检测吸附
                                 if isConnecting {
-                                    let worldX = (value.location.x - offset.x) / zoom
-                                    let worldY = (value.location.y - offset.y) / zoom
-                                    let currentPoint = CGPoint(x: worldX, y: worldY)
                                     connectingTo = currentPoint
-                                    // 实时检测最近的输入插槽并自动吸附（吸附范围40pt）
                                     snappedInputSlot = findNearestInputSlot(point: currentPoint, maxDistance: 40)
                                     return
                                 }
@@ -108,17 +126,19 @@ struct WorkflowCanvasView: View {
                                 if let nodeId = draggingNodeId,
                                    let startPos = dragStartNodePos,
                                    let startTouch = dragStartTouchPos {
-                                    let currentWorldX = (value.location.x - offset.x) / zoom
-                                    let currentWorldY = (value.location.y - offset.y) / zoom
-                                    let deltaX = currentWorldX - startTouch.x
-                                    let deltaY = currentWorldY - startTouch.y
+                                    let deltaX = currentPoint.x - startTouch.x
+                                    let deltaY = currentPoint.y - startTouch.y
                                     moveNode(id: nodeId, to: CGPoint(x: startPos.x + deltaX, y: startPos.y + deltaY))
                                     return
                                 }
 
-                                let startWorldX = (value.startLocation.x - offset.x) / zoom
-                                let startWorldY = (value.startLocation.y - offset.y) / zoom
-                                let startPoint = CGPoint(x: startWorldX, y: startWorldY)
+                                // 移动距离小于阈值，不做任何处理（让onTapGesture处理点击）
+                                if moveDistance < 5 && !hasExceededDragThreshold {
+                                    return
+                                }
+
+                                // 超过阈值，标记为拖动状态
+                                hasExceededDragThreshold = true
 
                                 // 检查是否点击了输出插槽（开始连线）
                                 if let outputSlot = hitTestOutputSlot(point: startPoint) {
@@ -129,19 +149,18 @@ struct WorkflowCanvasView: View {
                                         slotIndex: outputSlot.slotIndex,
                                         isOutput: true
                                     )
-                                    connectingTo = startPoint
+                                    connectingTo = currentPoint
                                     snappedInputSlot = nil
                                     return
                                 }
 
-                                // 滑块拖动（无需选中节点，只要起点在滑块区域）
+                                // 滑块拖动（只要起点在滑块区域）
                                 if let slider = hitTestSlider(point: startPoint) {
-                                    let currentWorldX = (value.location.x - offset.x) / zoom
-                                    updateSliderValue(nodeId: slider.nodeId, index: slider.index, worldX: currentWorldX)
+                                    updateSliderValue(nodeId: slider.nodeId, index: slider.index, worldX: currentPoint.x)
                                     return
                                 }
 
-                                // 检查是否点击了节点的可拖动区域（节点上但不在控件区域）
+                                // 检查是否点击了节点的可拖动区域
                                 if let node = hitTestNodeDraggableArea(point: startPoint) {
                                     draggingNodeId = node.id
                                     dragStartNodePos = node.position
@@ -158,19 +177,20 @@ struct WorkflowCanvasView: View {
                             .onEnded { value in
                                 // 正在连线时，检查是否有被吸附的输入插槽或命中输入插槽
                                 if isConnecting {
-                                    // 优先使用被吸附的插槽，其次使用命中测试
-                                    if let targetSlot = snappedInputSlot ?? hitTestInputSlot(point: CGPoint(x: (value.location.x - offset.x) / zoom, y: (value.location.y - offset.y) / zoom)),
+                                    let currentWorldX = (value.location.x - offset.x) / zoom
+                                    let currentWorldY = (value.location.y - offset.y) / zoom
+                                    let endPoint = CGPoint(x: currentWorldX, y: currentWorldY)
+                                    if let targetSlot = snappedInputSlot ?? hitTestInputSlot(point: endPoint),
                                        let from = connectingFrom {
-                                        // 创建连线
                                         createLink(from: from, to: targetSlot)
                                     }
-
-                                    // 重置连线状态
                                     isConnecting = false
                                     connectingFrom = nil
                                     connectingFromPoint = nil
                                     connectingTo = nil
                                     snappedInputSlot = nil
+                                    actualGestureStartPoint = nil
+                                    hasExceededDragThreshold = false
                                     return
                                 }
 
@@ -179,10 +199,19 @@ struct WorkflowCanvasView: View {
                                     draggingNodeId = nil
                                     dragStartNodePos = nil
                                     dragStartTouchPos = nil
+                                    actualGestureStartPoint = nil
+                                    hasExceededDragThreshold = false
                                     return
                                 }
 
-                                lastOffset = offset
+                                // 如果超过了拖动阈值且是画布平移，更新lastOffset
+                                if hasExceededDragThreshold {
+                                    lastOffset = offset
+                                }
+
+                                // 重置手势状态
+                                actualGestureStartPoint = nil
+                                hasExceededDragThreshold = false
                             },
                         MagnificationGesture()
                             .onChanged { value in
