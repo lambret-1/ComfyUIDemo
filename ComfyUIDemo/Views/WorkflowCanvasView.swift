@@ -127,7 +127,7 @@ struct WorkflowCanvasView: View {
 
             let path = bezierLinkPath(from: sourcePoint, to: targetPoint)
             let linkColor = colorForLinkType(link.linkType)
-            context.stroke(path, with: .color(linkColor), lineWidth: 2 / zoom)
+            context.stroke(path, with: .color(linkColor), lineWidth: 2.5)
         }
     }
 
@@ -169,35 +169,41 @@ struct WorkflowCanvasView: View {
 
             // 节点背景
             context.fill(shape.path(in: rect), with: .color(Color(.secondarySystemBackground)))
-            // 节点边框
-            context.stroke(shape.path(in: rect), with: .color(.teal), lineWidth: 2 / zoom)
+            // 节点边框（画布坐标系固定线宽，随缩放自然变化）
+            context.stroke(shape.path(in: rect), with: .color(.teal), lineWidth: 2)
 
-            // 节点标题栏（顶部色带）
+            // 节点标题栏（顶部色带，高度占节点30%且不低于32）
+            let headerHeight = max(32, rect.height * 0.3)
             let headerRect = CGRect(
                 x: rect.minX,
                 y: rect.minY,
                 width: rect.width,
-                height: min(28, rect.height * 0.3)
+                height: headerHeight
             )
-            context.fill(shape.path(in: headerRect), with: .color(.teal.opacity(0.6)))
+            // 深色标题栏确保白色文字清晰可读
+            context.fill(shape.path(in: headerRect), with: .color(Color(red: 0.0, green: 0.45, blue: 0.45)))
 
-            // 节点标题文本
+            // 节点标题文本（画布坐标系固定字号，随缩放自然变化）
             let titleText = Text(node.displayTitle)
-                .font(.system(size: 12 / zoom, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(.white)
-            context.draw(titleText, in: headerRect.insetBy(dx: 6 / zoom, dy: 2 / zoom))
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 4))
 
             // 节点类型文本（标题下方）
             let typeRect = CGRect(
                 x: rect.minX,
                 y: headerRect.maxY,
                 width: rect.width,
-                height: rect.height - headerRect.height
+                height: rect.height - headerHeight
             )
             let typeText = Text(node.type)
-                .font(.system(size: 10 / zoom))
-                .foregroundColor(.secondary)
-            context.draw(typeText, in: typeRect.insetBy(dx: 6 / zoom, dy: 4 / zoom))
+                .font(.system(size: 11))
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.5)
+            context.draw(typeText, in: typeRect.insetBy(dx: 8, dy: 6))
 
             // 绘制插槽圆点
             drawSlots(context: context, node: node)
@@ -212,7 +218,7 @@ struct WorkflowCanvasView: View {
         if let outputs = node.outputs {
             for (index, _) in outputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: true)
-                let dotSize: CGFloat = 8 / zoom
+                let dotSize: CGFloat = 10
                 let dotRect = CGRect(
                     x: point.x - dotSize / 2,
                     y: point.y - dotSize / 2,
@@ -220,7 +226,7 @@ struct WorkflowCanvasView: View {
                     height: dotSize
                 )
                 context.fill(Path(ellipseIn: dotRect), with: .color(.orange))
-                context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1 / zoom)
+                context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
             }
         }
 
@@ -228,7 +234,7 @@ struct WorkflowCanvasView: View {
         if let inputs = node.inputs {
             for (index, _) in inputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
-                let dotSize: CGFloat = 8 / zoom
+                let dotSize: CGFloat = 10
                 let dotRect = CGRect(
                     x: point.x - dotSize / 2,
                     y: point.y - dotSize / 2,
@@ -236,7 +242,7 @@ struct WorkflowCanvasView: View {
                     height: dotSize
                 )
                 context.fill(Path(ellipseIn: dotRect), with: .color(.purple))
-                context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1 / zoom)
+                context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
             }
         }
     }
@@ -249,9 +255,9 @@ struct WorkflowCanvasView: View {
     /// - Returns: 插槽中心点坐标
     private func getSlotPosition(node: NodeModel, slotIndex: Int, isOutput: Bool) -> CGPoint {
         let rect = CGRect(origin: node.position, size: node.nodeSize)
-        let headerHeight = min(28, rect.height * 0.3)
-        let slotAreaTop = rect.minY + headerHeight + 8
-        let slotGap: CGFloat = 18
+        let headerHeight = max(32, rect.height * 0.3)
+        let slotAreaTop = rect.minY + headerHeight + 10
+        let slotGap: CGFloat = 20
         let y = slotAreaTop + CGFloat(slotIndex) * slotGap
 
         if isOutput {
