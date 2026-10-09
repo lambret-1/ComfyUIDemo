@@ -197,22 +197,13 @@ struct WorkflowCanvasView: View {
         }
     }
 
-    /// 生成两点间的三次贝塞尔曲线路径（动态控制点，垂直距离大时增加水平偏移形成平滑弧）
+    /// 生成两点间的三次贝塞尔曲线路径（动态控制点，基于水平距离，避免绕大圈）
     private func bezierLinkPath(from: CGPoint, to: CGPoint) -> Path {
         Path { path in
             path.move(to: from)
             let dx = to.x - from.x
-            let dy = to.y - from.y
-            // 基础偏移基于水平距离
-            let baseOffset = min(max(abs(dx) * 0.5, 20), 120)
-            // 垂直距离大时额外增加水平偏移，形成平滑椭圆弧
-            let verticalBonus = min(abs(dy) * 0.15, 60)
-            var offset = baseOffset + verticalBonus
-            // 反向连线（目标在左侧）时增加偏移避免线条重叠
-            if dx < 0 {
-                offset += 30
-            }
-            offset = min(offset, 180)
+            // 动态偏移：基于水平距离，下限30，上限150
+            let offset = min(150.0, max(30.0, abs(dx) * 0.5))
             path.addCurve(
                 to: to,
                 control1: CGPoint(x: from.x + offset, y: from.y),

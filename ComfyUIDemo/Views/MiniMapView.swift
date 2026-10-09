@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 画布小地图：右下角悬浮，显示节点分布与当前视野，支持点击跳转
+/// 画布小地图：右下角悬浮，显示节点分布与当前视野，支持点击/拖拽跳转、折叠展开
 struct MiniMapView: View {
     /// 工作流数据
     let workflow: WorkflowModel
@@ -20,85 +20,103 @@ struct MiniMapView: View {
     private let mapHeight: CGFloat = 90
     /// 内边距
     private let padding: CGFloat = 6
+    /// 折叠状态
+    @State private var isCollapsed: Bool = false
 
     var body: some View {
-        Canvas { context, size in
-            // 小地图背景（半透明，减少遮挡）
-            let bgRect = CGRect(origin: .zero, size: size)
-            context.fill(Path(bgRect), with: .color(Color.black.opacity(0.6)))
-            context.stroke(Path(bgRect), with: .color(.white.opacity(0.35)), lineWidth: 1)
+        VStack(spacing: 0) {
+            if !isCollapsed {
+                Canvas { context, size in
+                    // 小地图背景（半透明，减少遮挡）
+                    let bgRect = CGRect(origin: .zero, size: size)
+                    context.fill(Path(bgRect), with: .color(Color.black.opacity(0.55)))
+                    context.stroke(Path(bgRect), with: .color(.white.opacity(0.35)), lineWidth: 1)
 
-            // 计算所有节点（含分组）的包围盒
-            guard let box = contentBoundingBox else { return }
-            guard box.width > 0, box.height > 0 else { return }
+                    // 计算所有节点（含分组）的包围盒
+                    guard let box = contentBoundingBox else { return }
+                    guard box.width > 0, box.height > 0 else { return }
 
-            // 等比缩放（Uniform Scale）
-            let availableW = size.width - padding * 2
-            let availableH = size.height - padding * 2
-            let scale = min(availableW / box.width, availableH / box.height)
-            let contentW = box.width * scale
-            let contentH = box.height * scale
-            let offsetX = (size.width - contentW) / 2 - box.minX * scale
-            let offsetY = (size.height - contentH) / 2 - box.minY * scale
+                    // 等比缩放（Uniform Scale）
+                    let availableW = size.width - padding * 2
+                    let availableH = size.height - padding * 2
+                    let scale = min(availableW / box.width, availableH / box.height)
+                    let contentW = box.width * scale
+                    let contentH = box.height * scale
+                    let offsetX = (size.width - contentW) / 2 - box.minX * scale
+                    let offsetY = (size.height - contentH) / 2 - box.minY * scale
 
-            // 绘制分组背景（底层）
-            for group in workflow.groups {
-                let gRect = CGRect(
-                    x: group.frame.minX * scale + offsetX,
-                    y: group.frame.minY * scale + offsetY,
-                    width: max(group.frame.width * scale, 1),
-                    height: max(group.frame.height * scale, 1)
+                    // 绘制分组背景（底层）
+                    for group in workflow.groups {
+                        let gRect = CGRect(
+                            x: group.frame.minX * scale + offsetX,
+                            y: group.frame.minY * scale + offsetY,
+                            width: max(group.frame.width * scale, 1),
+                            height: max(group.frame.height * scale, 1)
+                        )
+                        context.fill(Path(gRect), with: .color(group.borderColor.opacity(0.25)))
+                    }
+
+                    // 绘制节点色块
+                    for node in workflow.nodes {
+                        let nodeRect = CGRect(
+                            x: node.position.x * scale + offsetX,
+                            y: node.position.y * scale + offsetY,
+                            width: max(node.nodeSize.width * scale, 3),
+                            height: max(node.nodeSize.height * scale, 3)
+                        )
+                        context.fill(Path(nodeRect), with: .color(node.headerColor))
+                    }
+
+                    // 绘制当前视野框（红色）
+                    let viewWorldRect = CGRect(
+                        x: -offset.x / zoom,
+                        y: -offset.y / zoom,
+                        width: viewSize.width / zoom,
+                        height: viewSize.height / zoom
+                    )
+                    let viewMapRect = CGRect(
+                        x: viewWorldRect.minX * scale + offsetX,
+                        y: viewWorldRect.minY * scale + offsetY,
+                        width: viewWorldRect.width * scale,
+                        height: viewWorldRect.height * scale
+                    )
+                    context.stroke(Path(viewMapRect), with: .color(.red), lineWidth: 1.5)
+                    context.fill(Path(viewMapRect), with: .color(.red.opacity(0.08)))
+                }
+                .frame(width: mapWidth, height: mapHeight)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            onDrag(mapToWorld(location: value.location))
+                        }
+                        .onEnded { value in
+                            onTap(mapToWorld(location: value.location))
+                        }
                 )
-                context.fill(Path(gRect), with: .color(group.borderColor.opacity(0.25)))
             }
 
-            // 绘制节点色块
-            for node in workflow.nodes {
-                let nodeRect = CGRect(
-                    x: node.position.x * scale + offsetX,
-                    y: node.position.y * scale + offsetY,
-                    width: max(node.nodeSize.width * scale, 3),
-                    height: max(node.nodeSize.height * scale, 3)
-                )
-                context.fill(Path(nodeRect), with: .color(node.headerColor))
+            // 折叠/展开按钮
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isCollapsed.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: isCollapsed ? "map.fill" : "map")
+                        .font(.system(size: 10))
+                    if !isCollapsed {
+                        Text("收起")
+                            .font(.system(size: 10))
+                    }
+                }
+                .frame(width: isCollapsed ? 36 : mapWidth, height: 24)
+                .background(Color.black.opacity(0.55))
+                .foregroundColor(.white)
             }
-
-            // 绘制当前视野框（红色）
-            let viewWorldRect = CGRect(
-                x: -offset.x / zoom,
-                y: -offset.y / zoom,
-                width: viewSize.width / zoom,
-                height: viewSize.height / zoom
-            )
-            let viewMapRect = CGRect(
-                x: viewWorldRect.minX * scale + offsetX,
-                y: viewWorldRect.minY * scale + offsetY,
-                width: viewWorldRect.width * scale,
-                height: viewWorldRect.height * scale
-            )
-            context.stroke(Path(viewMapRect), with: .color(.red), lineWidth: 1.5)
-            context.fill(Path(viewMapRect), with: .color(.red.opacity(0.08)))
         }
-        .frame(width: mapWidth, height: mapHeight)
         .cornerRadius(8)
-        .contentShape(Rectangle())
-        .gesture(
-            SimultaneousGesture(
-                TapGesture()
-                    .onEnded { _ in
-                        // 点击不处理位置，由DragGesture处理
-                    },
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let worldPoint = mapToWorld(location: value.location)
-                        onDrag(worldPoint)
-                    }
-                    .onEnded { value in
-                        let worldPoint = mapToWorld(location: value.location)
-                        onTap(worldPoint)
-                    }
-            )
-        )
+        .shadow(radius: 4)
     }
 
     /// 将小地图坐标转换为画布世界坐标

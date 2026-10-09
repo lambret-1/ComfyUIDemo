@@ -113,7 +113,7 @@ struct NodeModel: Codable, Identifiable, Hashable {
         title?.isEmpty == false ? title! : type
     }
 
-    /// 控件参数名列表（严格从inputs的widget索引提取，避免预设映射错位）
+    /// 控件参数名列表（优先从inputs.widget提取，其次用已知节点预设映射，最后用序号）
     var widgetNames: [String] {
         let widgetCount = widgetsValues?.count ?? 0
         guard widgetCount > 0 else { return [] }
@@ -139,7 +139,19 @@ struct NodeModel: Codable, Identifiable, Hashable {
             }
         }
 
-        // 2. 兜底用序号（不使用可能错位的预设映射表）
+        // 2. 用已知节点类型的预设参数名映射（仅覆盖已验证的节点类型）
+        if let presetNames = WidgetNameRegistry.names(for: type) {
+            var names = [String](repeating: "", count: widgetCount)
+            for i in 0..<min(presetNames.count, widgetCount) {
+                names[i] = presetNames[i]
+            }
+            for i in 0..<widgetCount where names[i].isEmpty {
+                names[i] = "参数\(i + 1)"
+            }
+            return names
+        }
+
+        // 3. 兜底用序号
         return (0..<widgetCount).map { "参数\($0 + 1)" }
     }
 
@@ -615,11 +627,20 @@ enum WidgetNameRegistry {
     /// 根据节点类型返回参数名列表
     static func names(for nodeType: String) -> [String]? {
         let lower = nodeType.lowercased()
-        // 采样器类
-        if lower.contains("ksampler") || (lower.contains("sampler") && lower.contains("ref2va")) {
-            return ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise", "width", "height", "batch_size"]
+        // MiniMax H3 Ref2VA 分段采样器（已验证参数顺序）
+        if lower.contains("segmentedsampler") && lower.contains("ref2va") {
+            return [
+                "ref2va", "steps", "cfg", "sampler_name", "scheduler",
+                "seed", "segment_count", "context_length", "denoise",
+                "width", "height", "batch_size"
+            ]
         }
-        if lower.contains("sampler") {
+        // MiniMax H3 上下文循环接力
+        if lower.contains("contextloop") || lower.contains("context_loop") {
+            return ["latent_tail", "steps", "cfg", "denoise", "loop_count"]
+        }
+        // 采样器类
+        if lower.contains("ksampler") || lower.contains("sampler") {
             return ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"]
         }
         // 加载器类
@@ -647,10 +668,6 @@ enum WidgetNameRegistry {
         if lower.contains("saveimage") {
             return ["filename_prefix"]
         }
-        // 上下文循环类
-        if lower.contains("contextloop") || lower.contains("context_loop") {
-            return ["steps", "cfg", "denoise", "loop_count"]
-        }
         // 视频/音频加载器
         if lower.contains("videoloader") || lower.contains("video_loader") {
             return ["video", "frame_start", "frame_count"]
@@ -662,6 +679,16 @@ enum WidgetNameRegistry {
         if lower.contains("scriptplanner") || lower.contains("script_planner") {
             return ["prompt", "max_segments", "duration"]
         }
+        // Ref2VA 条件构建器
+        if lower.contains("ref2vaconditioning") || lower.contains("ref2va_conditioning") {
+            return ["ref_images", "ref_videos", "ref_video_audios", "ref_audios", "plan_json", "clip"]
+        }
+        // DiT 模型加载器
+        if lower.contains("dit") && lower.contains("model") && lower.contains("load") {
+            return ["model_name"]
+        }
+        return nil
+    }
         // 条件构建类
         if lower.contains("conditioning") && lower.contains("ref2va") {
             return ["ref2va", "strength", "threshold"]

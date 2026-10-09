@@ -6,8 +6,8 @@ enum CanvasMath {
     static let minZoom: CGFloat = 0.1
     /// 最大缩放比例（单节点时防止过度放大）
     static let maxZoom: CGFloat = 1.5
-    /// 适配时预留的边距比例
-    static let fitPadding: CGFloat = 0.9
+    /// 适配时预留的边距比例（0.82 表示预留18%边距，避免节点被屏幕边缘截断）
+    static let fitPadding: CGFloat = 0.82
 
     /// 计算所有节点的包围盒
     static func getBoundingBox(nodes: [NodeModel]) -> CGRect {
