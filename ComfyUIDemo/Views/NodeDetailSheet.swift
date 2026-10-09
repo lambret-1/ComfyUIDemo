@@ -48,26 +48,29 @@ struct NodeDetailSheet: View {
     // MARK: - 参数页（支持编辑）
 
     private var parameterView: some View {
-        List {
-            if let node = node {
-                Section("基本信息") {
-                    LabeledContent("节点编号", value: "\(node.id)")
-                    LabeledContent("节点类型", value: node.type)
-                    if let title = node.title, !title.isEmpty {
-                        LabeledContent("节点标题", value: title)
-                    }
-                    LabeledContent("位置", value: "(\(String(format: "%.0f", node.position.x)), \(String(format: "%.0f", node.position.y)))")
-                }
-
-                Section("控件参数（可编辑）") {
-                    if let widgets = node.widgetsValues, !widgets.isEmpty {
-                        ForEach(Array(widgets.enumerated()), id: \.offset) { index, widget in
-                            let rawName = index < node.widgetNames.count ? node.widgetNames[index] : "参数\(index + 1)"
-                            let paramName = SlotLocalization.bilingual(for: rawName)
-                            editableWidgetRow(paramName: paramName, index: index, widget: widget)
+        ScrollViewReader { proxy in
+            Form {
+                if let node = node {
+                    Section("基本信息") {
+                        LabeledContent("节点编号", value: "\(node.id)")
+                        LabeledContent("节点类型", value: node.type)
+                        if let title = node.title, !title.isEmpty {
+                            LabeledContent("节点标题", value: title)
                         }
-                    } else {
-                        Text("无控件参数").foregroundColor(.secondary)
+                        LabeledContent("位置", value: "(\(String(format: "%.0f", node.position.x)), \(String(format: "%.0f", node.position.y)))")
+                    }
+
+                    Section("控件参数（可编辑）") {
+                        if let widgets = node.widgetsValues, !widgets.isEmpty {
+                            ForEach(Array(widgets.enumerated()), id: \.offset) { index, widget in
+                                let rawName = index < node.widgetNames.count ? node.widgetNames[index] : "参数\(index + 1)"
+                                let paramName = SlotLocalization.bilingual(for: rawName)
+                                editableWidgetRow(paramName: paramName, index: index, widget: widget, proxy: proxy)
+                                    .id(index)
+                            }
+                        } else {
+                            Text("无控件参数").foregroundColor(.secondary)
+                        }
                     }
                 }
             }
@@ -76,7 +79,7 @@ struct NodeDetailSheet: View {
 
     /// 可编辑的参数行
     @ViewBuilder
-    private func editableWidgetRow(paramName: String, index: Int, widget: WidgetValue) -> some View {
+    private func editableWidgetRow(paramName: String, index: Int, widget: WidgetValue, proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(paramName)
                 .font(.subheadline)
@@ -104,7 +107,10 @@ struct NodeDetailSheet: View {
                     ))
                     .textFieldStyle(.roundedBorder)
                     .keyboardType(.decimalPad)
-                    .frame(width: 120)
+                    .frame(width: 150)
+                    .onTapGesture {
+                        withAnimation { proxy.scrollTo(index, anchor: .center) }
+                    }
                     Spacer()
                     Text("数值").font(.caption).foregroundColor(.secondary)
                 }
@@ -115,6 +121,9 @@ struct NodeDetailSheet: View {
                     set: { newValue in updateWidget(index: index, value: .string(newValue)) }
                 ))
                 .textFieldStyle(.roundedBorder)
+                .onTapGesture {
+                    withAnimation { proxy.scrollTo(index, anchor: .center) }
+                }
             }
         }
         .padding(.vertical, 4)
