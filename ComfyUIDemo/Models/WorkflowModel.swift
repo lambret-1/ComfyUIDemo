@@ -121,7 +121,7 @@ struct NodeModel: Codable, Identifiable, Hashable {
             for widget in widgets {
                 let text = widget.displayString
                 let textWidth = text.boundingRect(
-                    with: CGSize(width: .greatestFiniteMagnitude, height: 16),
+                    with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: 16),
                     options: [.usesLineFragmentOrigin, .usesFontLeading],
                     attributes: [.font: labelFont],
                     context: nil
