@@ -700,16 +700,14 @@ struct WorkflowCanvasView: View {
         }
     }
 
-    /// 切换开关控件的值
+    /// 切换开关控件的值（直接修改workflow，确保触发视图更新）
     private func toggleWidget(nodeId: Int, index: Int) {
         guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
-        var node = workflow.nodes[nodeIndex]
-        guard var widgets = node.widgetsValues, index < widgets.count else { return }
-        let widget = widgets[index]
+        guard workflow.nodes[nodeIndex].widgetsValues != nil,
+              index < workflow.nodes[nodeIndex].widgetsValues!.count else { return }
+        let widget = workflow.nodes[nodeIndex].widgetsValues![index]
         if case .toggle = widget.widgetKind {
-            widgets[index] = .bool(!widget.boolValue)
-            node.widgetsValues = widgets
-            workflow.nodes[nodeIndex] = node
+            workflow.nodes[nodeIndex].widgetsValues![index] = .bool(!widget.boolValue)
         }
     }
 
@@ -755,11 +753,12 @@ struct WorkflowCanvasView: View {
         return nil
     }
 
-    /// 根据世界坐标X更新滑块数值（范围0-100，根据滑块位置比例计算）
+    /// 根据世界坐标X更新滑块数值（直接修改workflow，确保触发视图更新）
     private func updateSliderValue(nodeId: Int, index: Int, worldX: CGFloat) {
         guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
-        var node = workflow.nodes[nodeIndex]
-        guard var widgets = node.widgetsValues, index < widgets.count else { return }
+        guard workflow.nodes[nodeIndex].widgetsValues != nil,
+              index < workflow.nodes[nodeIndex].widgetsValues!.count else { return }
+        let node = workflow.nodes[nodeIndex]
         let rect = CGRect(origin: node.position, size: node.nodeSize)
         let headerHeight = min(30, rect.height * 0.4)
         let widgetTop = rect.minY + headerHeight + 6
@@ -790,50 +789,50 @@ struct WorkflowCanvasView: View {
         // 数值范围0-100，取一位小数
         let newValue = Double(round(ratio * 1000) / 10)
 
-        let original = widgets[index]
+        let original = workflow.nodes[nodeIndex].widgetsValues![index]
+        // 直接修改数组元素，确保触发@Binding更新
         switch original {
         case .int:
-            widgets[index] = .int(Int(newValue))
+            workflow.nodes[nodeIndex].widgetsValues![index] = .int(Int(newValue))
         case .double:
-            widgets[index] = .double(newValue)
+            workflow.nodes[nodeIndex].widgetsValues![index] = .double(newValue)
         default:
-            widgets[index] = .double(newValue)
+            workflow.nodes[nodeIndex].widgetsValues![index] = .double(newValue)
         }
-        node.widgetsValues = widgets
-        workflow.nodes[nodeIndex] = node
     }
 
-    /// 保存单参数编辑结果（严格保持原始值类型，避免类型转换导致显示异常）
+    /// 保存单参数编辑结果（直接修改workflow，确保触发视图更新）
     private func saveEditedWidget(nodeId: Int, index: Int, text: String) {
         guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
-        var node = workflow.nodes[nodeIndex]
-        guard var widgets = node.widgetsValues, index < widgets.count else { return }
-        let original = widgets[index]
-        // 根据原始值的精确类型保存，严格保持类型一致
+        guard workflow.nodes[nodeIndex].widgetsValues != nil,
+              index < workflow.nodes[nodeIndex].widgetsValues!.count else { return }
+
+        let original = workflow.nodes[nodeIndex].widgetsValues![index]
+        let newValue: WidgetValue
         switch original {
         case .int:
             if let intValue = Int(text) {
-                widgets[index] = .int(intValue)
+                newValue = .int(intValue)
             } else if let doubleValue = Double(text) {
-                widgets[index] = .double(doubleValue)
+                newValue = .double(doubleValue)
             } else {
-                widgets[index] = .string(text)
+                newValue = .string(text)
             }
         case .double:
             if let doubleValue = Double(text) {
-                widgets[index] = .double(doubleValue)
+                newValue = .double(doubleValue)
             } else {
-                widgets[index] = .string(text)
+                newValue = .string(text)
             }
         case .string:
-            widgets[index] = .string(text)
+            newValue = .string(text)
         case .bool:
-            widgets[index] = .bool(text.lowercased() == "true" || text == "1" || text.lowercased() == "开")
+            newValue = .bool(text.lowercased() == "true" || text == "1" || text.lowercased() == "开")
         case .null:
-            widgets[index] = .string(text)
+            newValue = .string(text)
         }
-        node.widgetsValues = widgets
-        workflow.nodes[nodeIndex] = node
+        // 直接修改数组元素，确保触发@Binding更新
+        workflow.nodes[nodeIndex].widgetsValues![index] = newValue
     }
 }
 
