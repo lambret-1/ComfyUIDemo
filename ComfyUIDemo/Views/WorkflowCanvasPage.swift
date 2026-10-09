@@ -16,11 +16,29 @@ struct WorkflowCanvasPage: View {
     @State private var showSaveSuccess: Bool = false
     /// 保存失败提示
     @State private var showSaveError: Bool = false
+    /// 当前选中的模板ID
+    @State private var selectedTemplateId: String?
+    /// 模板加载成功提示
+    @State private var showTemplateSuccess: Bool = false
+    /// 模板加载失败提示
+    @State private var showTemplateError: Bool = false
 
     var body: some View {
         NavigationStack {
-            WorkflowCanvasView(workflow: $workflow)
-                .navigationTitle("工作流画布")
+            VStack(spacing: 0) {
+                // 模板标签栏（画布上方入口）
+                TemplateTabBar(
+                    selectedTemplateId: $selectedTemplateId,
+                    onSelect: { template in
+                        loadTemplate(template)
+                    }
+                )
+
+                // 画布区域（缩减一行高度容纳标签栏）
+                WorkflowCanvasView(workflow: $workflow)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .navigationTitle("工作流画布")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
@@ -90,6 +108,12 @@ struct WorkflowCanvasPage: View {
                     if showSaveError {
                         saveToast(message: "保存失败", color: .red)
                     }
+                    if showTemplateSuccess {
+                        saveToast(message: "模板已加载", color: .blue)
+                    }
+                    if showTemplateError {
+                        saveToast(message: "模板加载失败", color: .red)
+                    }
                 }
         }
     }
@@ -108,6 +132,27 @@ struct WorkflowCanvasPage: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 showSaveError = false
             }
+        }
+    }
+
+    // MARK: - 加载模板
+
+    private func loadTemplate(_ template: WorkflowTemplate) {
+        guard let loaded = template.loadWorkflow() else {
+            showTemplateError = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                showTemplateError = false
+            }
+            return
+        }
+        workflow = loaded
+        // 重置画布视角
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .resetCanvasView, object: nil)
+        }
+        showTemplateSuccess = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            showTemplateSuccess = false
         }
     }
 
