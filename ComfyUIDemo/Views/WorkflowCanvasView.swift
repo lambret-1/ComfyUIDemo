@@ -25,6 +25,8 @@ struct WorkflowCanvasView: View {
     @State private var editingWidget: (nodeId: Int, index: Int)?
     /// 单参数编辑弹窗的输入文本
     @State private var editingText: String = ""
+    /// 是否显示单参数编辑弹窗
+    @State private var showWidgetEditor: Bool = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -122,6 +124,7 @@ struct WorkflowCanvasView: View {
                         // 点击文本框/数字框 → 弹出单参数编辑
                         editingWidget = (node.id, index)
                         editingText = widget.displayString
+                        showWidgetEditor = true
                         return
                     }
                 }
@@ -131,19 +134,20 @@ struct WorkflowCanvasView: View {
                 )) { wrapper in
                     NodeDetailSheet(workflow: $workflow, nodeId: wrapper.id)
                 }
-                .alert("编辑参数", isPresented: Binding(
-                    get: { editingWidget != nil },
-                    set: { if !$0 { editingWidget = nil } }
-                )) {
+                .alert("编辑参数", isPresented: $showWidgetEditor) {
                     TextField("参数值", text: $editingText)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
-                    Button("取消", role: .cancel) { editingWidget = nil }
-                    Button("保存") {
-                        if let editing = editingWidget {
-                            saveEditedWidget(nodeId: editing.nodeId, index: editing.index, text: editingText)
-                        }
+                    Button("取消", role: .cancel) {
                         editingWidget = nil
+                    }
+                    Button("保存") {
+                        // 先获取editingWidget，再清空，避免alert关闭时editingWidget被置nil
+                        let target = editingWidget
+                        editingWidget = nil
+                        if let target = target {
+                            saveEditedWidget(nodeId: target.nodeId, index: target.index, text: editingText)
+                        }
                     }
                 } message: {
                     if let editing = editingWidget,
@@ -637,24 +641,34 @@ struct WorkflowCanvasView: View {
         }
     }
 
-    /// 保存单参数编辑结果（自动识别数值/文本类型）
+    /// 保存单参数编辑结果（严格保持原始值类型，避免类型转换导致显示异常）
     private func saveEditedWidget(nodeId: Int, index: Int, text: String) {
         guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
         var node = workflow.nodes[nodeIndex]
         guard var widgets = node.widgetsValues, index < widgets.count else { return }
         let original = widgets[index]
-        // 根据原控件类型决定保存格式
-        switch original.widgetKind {
-        case .number:
+        // 根据原始值的精确类型保存，严格保持类型一致
+        switch original {
+        case .int:
+            if let intValue = Int(text) {
+                widgets[index] = .int(intValue)
+            } else if let doubleValue = Double(text) {
+                widgets[index] = .double(doubleValue)
+            } else {
+                widgets[index] = .string(text)
+            }
+        case .double:
             if let doubleValue = Double(text) {
                 widgets[index] = .double(doubleValue)
             } else {
                 widgets[index] = .string(text)
             }
-        case .text:
+        case .string:
             widgets[index] = .string(text)
-        case .toggle:
+        case .bool:
             widgets[index] = .bool(text.lowercased() == "true" || text == "1" || text.lowercased() == "开")
+        case .null:
+            widgets[index] = .string(text)
         }
         node.widgetsValues = widgets
         workflow.nodes[nodeIndex] = node
