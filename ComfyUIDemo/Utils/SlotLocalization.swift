@@ -1,87 +1,67 @@
 import Foundation
 
 /// 插槽名称本地化管理器：数据层存英文，UI层显示中文
+/// 词典严格基于 MiniMax H3 三份模板（T2V/I2V/R2V）实际使用的插槽名称构建
 /// 严格遵循"数据存英文，UI显中文"原则，导出JSON时使用原始英文值
 enum SlotLocalization {
 
-    // MARK: - 基础插槽字典（ComfyUI 核心节点）
+    // MARK: - H3 模板插槽翻译词典（基于 T2V/I2V/R2V 三份 JSON 实际插槽名）
 
-    private static let baseDict: [String: String] = [
-        "model": "模型",
-        "clip": "文本编码",
-        "vae": "VAE",
-        "conditioning": "条件",
-        "latent": "潜空间",
-        "samples": "样本",
-        "image": "图像",
-        "images": "图像组",
-        "video": "视频",
-        "videos": "视频组",
+    private static let h3Dict: [String: String] = [
+        // === 输出插槽类型名（大写）===
         "audio": "音频",
-        "audios": "音频组",
-        "seed": "种子",
-        "steps": "步数",
-        "cfg": "引导系数",
-        "sampler_name": "采样器",
-        "scheduler": "调度器",
-        "denoise": "去噪强度",
-        "width": "宽度",
-        "height": "高度",
-        "batch_size": "批量",
-        "prompt": "提示词",
-        "negative": "负向提示词",
-        "text": "文本",
-        "string": "字符串",
-        "int": "整数",
-        "float": "浮点数",
+        "bool": "布尔",
         "boolean": "布尔",
+        "clip": "文本编码",
+        "float": "浮点数",
+        "guider": "引导器",
+        "image": "图像",
+        "int": "整数",
+        "latent": "潜空间",
         "mask": "遮罩",
-        "pixels": "像素",
-        "control_net": "控制网",
-        "style": "风格",
-        "lora_name": "LoRA名称",
-        "strength_model": "模型强度",
-        "strength_clip": "CLIP强度",
-        "ckpt_name": "模型文件名",
-        "vae_name": "VAE文件名",
-        "clip_name": "CLIP文件名",
-        "filename_prefix": "文件名前缀",
-        "save_image": "保存图像",
-        "preview": "预览"
-    ]
+        "model": "模型",
+        "noise": "噪声",
+        "sampler": "采样器",
+        "sigmas": "噪声调度",
+        "string": "文本",
+        "vae": "VAE",
+        "video": "视频",
 
-    // MARK: - 扩展插槽字典（MiniMax H3 等自定义节点）
-
-    private static let customDict: [String: String] = [
-        "video_latent": "视频潜空间",
-        "audio_latent": "音频潜空间",
-        "latent_tail": "潜空间尾帧",
-        "prev_latent_tail": "上一段尾帧",
-        "context_latent": "上下文潜空间",
-        "segment_index": "片段索引",
-        "plan_json": "规划JSON",
-        "total_segments": "总片段数",
-        "ref_images": "参考图片",
-        "ref_videos": "参考视频",
-        "ref_video_audios": "参考视频原声",
-        "ref_audios": "参考音频",
-        "ref2va": "Ref2VA模式",
-        "video_vae": "视频VAE",
+        // === 输入插槽名（小写）===
         "audio_vae": "音频VAE",
-        "dit_model": "DiT模型",
-        "context_loop": "上下文循环",
-        "script_plan": "脚本规划",
-        "text_encoder": "文本编码器",
-        "qwen3_vl": "Qwen3-VL",
-        "minimax_h3": "MiniMax H3",
-        "segmented_sampler": "分段采样器",
-        "conditioning_builder": "条件构建器",
-        "script_planner": "脚本规划器",
-        "image_loader": "图片加载器",
-        "video_loader": "视频加载器",
-        "audio_loader": "音频加载器",
-        "model_loader": "模型加载器",
-        "context_loop_receiver": "上下文循环接力"
+        "batch_size": "批量大小",
+        "conditioning": "条件",
+        "denoised_output": "去噪输出",
+        "first_frame": "首帧",
+        "height": "高度",
+        "images": "图像组",
+        "last_frame": "尾帧",
+        "latent_image": "潜空间图像",
+        "length": "长度",
+        "on_false": "关时输出",
+        "on_true": "开时输出",
+        "output": "输出",
+        "positive": "正向条件",
+        "prompt": "提示词",
+        "samples": "样本",
+        "steps": "步数",
+        "strength_model_1": "模型强度1",
+        "switch": "开关",
+        "vae_name_1": "VAE文件名1",
+        "value": "值",
+        "value_1": "值1",
+        "value_2": "值2",
+        "values.a": "数值A",
+        "values.b": "数值B",
+        "width": "宽度",
+
+        // === 参考生视频（R2V）多参考插槽名 ===
+        "ref_audios.ref_audio_0": "参考音频0",
+        "ref_images.ref_image_0": "参考图片0",
+        "ref_images.ref_image_1": "参考图片1",
+        "ref_images.ref_image_2": "参考图片2",
+        "ref_video_audios.ref_video_audio_0": "参考视频原声0",
+        "ref_videos.ref_video_0": "参考视频0",
     ]
 
     // MARK: - 公共接口
@@ -92,17 +72,12 @@ enum SlotLocalization {
     static func localized(for englishName: String) -> String {
         let key = englishName.lowercased()
 
-        // 1. 优先查自定义字典
-        if let custom = customDict[key] {
-            return custom
+        // 1. 优先查 H3 模板词典
+        if let translated = h3Dict[key] {
+            return translated
         }
 
-        // 2. 其次查基础字典
-        if let base = baseDict[key] {
-            return base
-        }
-
-        // 3. 动态后缀/前缀匹配（兜底自动翻译）
+        // 2. 动态后缀/前缀匹配（兜底自动翻译）
         if key.hasSuffix("_vae") {
             let prefix = key.replacingOccurrences(of: "_vae", with: "")
             return "\(localized(for: prefix)) VAE"
@@ -132,7 +107,7 @@ enum SlotLocalization {
             return "上一\(localized(for: suffix))"
         }
 
-        // 4. 无匹配项，返回英文原值（绝不返回空字符串）
+        // 3. 无匹配项，返回英文原值（绝不返回空字符串）
         return englishName
     }
 
