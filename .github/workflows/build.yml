@@ -37,14 +37,15 @@ jobs:
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER=""
 
-      - name: 导出未签名 IPA
+      - name: 手动打包未签名 IPA
         run: |
-          xcodebuild -exportArchive \
-            -archivePath ./build/ComfyUIDemo.xcarchive \
-            -exportPath ./output \
-            -exportOptionsPlist exportOptions.plist \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+          # 未签名归档无法使用 exportArchive，手动从 xcarchive 提取 .app 并打包为 IPA
+          mkdir -p ./output/Payload
+          cp -R ./build/ComfyUIDemo.xcarchive/Products/Applications/ComfyUIDemo.app ./output/Payload/
+          cd ./output
+          zip -qr ComfyUIDemo.ipa Payload
+          cd ..
+          ls -lh ./output/ComfyUIDemo.ipa
 
       - name: 验证 IPA 产物
         run: |
