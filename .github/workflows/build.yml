@@ -66,14 +66,6 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "当前版本: $VERSION"
 
-      - name: 创建 Git 标签
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -f "v$VERSION"
-          git push origin "v$VERSION" --force
-
       - name: 创建 GitHub Release 并上传 IPA
         uses: softprops/action-gh-release@v2
         with:
