@@ -63,7 +63,7 @@ struct WorkflowCanvasView: View {
                     // 层级2.5：连线预览（正在连线时）
                     if isConnecting, let fromPoint = connectingFromPoint, let toPoint = connectingTo {
                         let previewPath = bezierLinkPath(from: fromPoint, to: toPoint)
-                        context.stroke(previewPath, with: .color(.blue.opacity(0.7)), lineWidth: 3, style: StrokeStyle(lineDash: [8, 4]))
+                        context.stroke(previewPath, with: .color(.blue.opacity(0.7)), style: StrokeStyle(lineWidth: 3, lineDash: [8, 4]))
                         // 绘制终点圆点
                         var endCircle = Path()
                         endCircle.addEllipse(in: CGRect(x: toPoint.x - 6, y: toPoint.y - 6, width: 12, height: 12))
