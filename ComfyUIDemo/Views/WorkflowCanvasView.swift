@@ -841,8 +841,10 @@ struct WorkflowCanvasView: View {
     /// 移动节点到指定位置（世界坐标）
     private func moveNode(id: Int, to position: CGPoint) {
         guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == id }) else { return }
-        workflow.nodes[nodeIndex].pos[0] = Double(position.x)
-        workflow.nodes[nodeIndex].pos[1] = Double(position.y)
+        // 使用临时变量修改后重新赋值整个node对象，确保SwiftUI检测到变化并更新视图
+        var node = workflow.nodes[nodeIndex]
+        node.pos = [Double(position.x), Double(position.y)]
+        workflow.nodes[nodeIndex] = node
     }
 
     /// 命中测试：判断点击位置是否在滑块区域，返回滑块信息
