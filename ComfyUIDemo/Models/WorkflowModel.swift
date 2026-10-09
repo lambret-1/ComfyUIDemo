@@ -113,47 +113,13 @@ struct NodeModel: Codable, Identifiable, Hashable {
         title?.isEmpty == false ? title! : type
     }
 
-    /// 控件参数名列表（优先从inputs.widget提取纯控件参数，其次用已知节点预设映射，最后用序号）
+    /// 控件参数名列表（严格从WidgetNameRegistry预设映射获取，绝不从inputs插槽名借用）
+    /// 注意：inputs.name是插槽名（用于画端口圆点和连线），widgets_values的参数名必须由节点类型预先定义
     var widgetNames: [String] {
         let widgetCount = widgetsValues?.count ?? 0
         guard widgetCount > 0 else { return [] }
 
-        // 常见输入插槽类型名（这些是连接输入，不是纯控件参数，跳过避免错位）
-        let slotTypeNames: Set<String> = [
-            "model", "clip", "vae", "conditioning", "latent", "samples",
-            "image", "images", "video", "videos", "audio", "audios",
-            "ref_images", "ref_videos", "ref_video_audios", "ref_audios",
-            "plan_json", "context_latent", "latent_tail", "prev_latent_tail",
-            "segment_index", "video_latent", "audio_latent", "video_vae", "audio_vae",
-            "pixels", "mask", "positive", "negative", "control_net", "style_model",
-            "gligen", "upscale_model", "data", "tensor", "frame"
-        ]
-
-        // 1. 从 inputs 中提取有 widget 索引且非插槽类型名的 input，按 widget 索引排序后取 name
-        if let inputs = inputs {
-            let widgetInputs = inputs.compactMap { slot -> (index: Int, name: String)? in
-                guard let widgetIndex = slot.widgetIndex,
-                      let name = slot.name,
-                      widgetIndex >= 0 && widgetIndex < widgetCount else { return nil }
-                // 跳过纯连接输入类型（这些name是插槽名，不是控件参数名）
-                let lowerName = name.lowercased()
-                guard !slotTypeNames.contains(lowerName) else { return nil }
-                return (widgetIndex, name)
-            }
-            if !widgetInputs.isEmpty {
-                var names = [String](repeating: "", count: widgetCount)
-                for item in widgetInputs {
-                    names[item.index] = item.name
-                }
-                // 填充未命名的位置
-                for i in 0..<widgetCount where names[i].isEmpty {
-                    names[i] = "参数\(i + 1)"
-                }
-                return names
-            }
-        }
-
-        // 2. 用已知节点类型的预设参数名映射（仅覆盖已验证的节点类型）
+        // 1. 用节点类型的预设参数名映射（策略A：内置映射字典）
         if let presetNames = WidgetNameRegistry.names(for: type) {
             var names = [String](repeating: "", count: widgetCount)
             for i in 0..<min(presetNames.count, widgetCount) {
@@ -165,15 +131,15 @@ struct NodeModel: Codable, Identifiable, Hashable {
             return names
         }
 
-        // 3. 兜底用序号
+        // 2. 兜底用序号
         return (0..<widgetCount).map { "参数\($0 + 1)" }
     }
 
     /// 节点主体背景色（优先自定义颜色，否则按类型匹配）
-    /// 节点主体背景色（不透明，确保遮挡连线）
+    /// 节点主体背景色（完全不透明，确保彻底遮挡连线避免穿模）
     var bodyColor: Color {
         if let hex = colorHex, let color = Color(hex: hex) {
-            return color.opacity(0.92)
+            return color.opacity(1.0)
         }
         return Color(.secondarySystemBackground)
     }
@@ -636,54 +602,116 @@ enum SlotTypeColor {
 
 // MARK: - 控件参数名注册表
 
-/// 常见节点类型的控件参数名映射表（当JSON中未提供widget信息时使用）
-/// 注意：只包含经过验证的参数名映射，不确定的节点统一用"参数N"避免错位
+/// 控件参数名映射字典（策略A：内置映射，离线高性能，绝不从inputs插槽名借用）
+/// 注意：inputs.name是插槽名（画端口圆点和连线用），widgets_values的参数名必须在此预先定义
 enum WidgetNameRegistry {
     /// 根据节点类型返回参数名列表
     static func names(for nodeType: String) -> [String]? {
         let lower = nodeType.lowercased()
-        // 标准 KSampler 系列（已验证）
-        if lower.contains("ksampler") {
-            return ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"]
+
+        // === MiniMax H3 系列自定义节点（已验证参数顺序）===
+
+        // Ref2VA 参考条件构建器：widgets_values = ["ref2va", 6, "full_ref", ...]
+        if lower.contains("ref2vaconditioning") || lower.contains("ref2va_conditioning") {
+            return ["模式", "强度", "提示词风格", "参数4", "参数5", "参数6"]
         }
-        // 标准加载器（已验证）
-        if lower.contains("checkpoint") && lower.contains("load") {
-            return ["ckpt_name"]
+
+        // Ref2VA 分段采样器：widgets_values = ["ref2va", 10, 20, 5.0, -1, 22, 24, 12.0, ...]
+        if lower.contains("segmentedsampler") && lower.contains("ref2va") {
+            return [
+                "模式", "步数", "引导系数", "采样器", "调度器",
+                "种子", "片段数", "上下文长度", "去噪强度",
+                "宽度", "高度", "批大小"
+            ]
         }
-        if lower.contains("vae") && lower.contains("load") {
-            return ["vae_name"]
+
+        // 上下文循环接力
+        if lower.contains("contextloop") || lower.contains("context_loop") {
+            return ["潜空间尾帧", "步数", "引导系数", "去噪强度", "循环次数"]
         }
-        if lower.contains("clip") && lower.contains("load") {
-            return ["clip_name"]
+
+        // Ref2VA DiT 模型加载器（2个参数）
+        if lower.contains("dit") && lower.contains("model") && lower.contains("load") {
+            return ["模型文件名", "参数2"]
         }
-        if lower.contains("image") && lower.contains("load") {
-            return ["image"]
-        }
-        // 文本编码（已验证，参数名为text）
+
+        // 文本编码器
         if lower.contains("textencode") || lower.contains("text_encode") {
-            return ["text"]
+            return ["文本"]
         }
-        // 标准潜空间（已验证）
-        if lower.contains("emptylatent") {
-            return ["width", "height", "batch_size"]
+
+        // VAE 加载器
+        if lower.contains("vae") && lower.contains("load") {
+            return ["VAE文件名"]
         }
-        // 标准保存（已验证）
-        if lower.contains("saveimage") {
-            return ["filename_prefix"]
+
+        // 参考图片加载器
+        if lower.contains("ref2va") && lower.contains("image") && lower.contains("load") {
+            return ["图片"]
         }
-        // 视频/音频加载器（已验证）
-        if lower.contains("videoloader") || lower.contains("video_loader") {
-            return ["video", "frame_start", "frame_count"]
+
+        // 参考视频加载器
+        if lower.contains("ref2va") && lower.contains("video") && lower.contains("load") {
+            return ["视频", "起始帧", "帧数"]
         }
-        if lower.contains("audioloader") || lower.contains("audio_loader") {
-            return ["audio"]
+
+        // 参考音频加载器
+        if lower.contains("ref2va") && lower.contains("audio") && lower.contains("load") {
+            return ["音频"]
         }
-        // 脚本规划类（已验证）
+
+        // 脚本规划台
         if lower.contains("scriptplanner") || lower.contains("script_planner") {
-            return ["prompt", "max_segments", "duration"]
+            return ["提示词", "最大片段数", "时长"]
         }
-        // 注意：Ref2VAConditioning、ContextLoop、DiTModelLoader、SegmentedSampler 等自定义节点
-        // 的参数顺序未经验证，不使用预设映射，统一用"参数N"避免错位
+
+        // === 标准 ComfyUI 节点 ===
+
+        // KSampler 系列
+        if lower.contains("ksampler") {
+            return ["种子", "步数", "引导系数", "采样器", "调度器", "去噪强度"]
+        }
+
+        // Checkpoint 加载器
+        if lower.contains("checkpoint") && lower.contains("load") {
+            return ["模型文件名"]
+        }
+
+        // CLIP 加载器
+        if lower.contains("clip") && lower.contains("load") {
+            return ["CLIP文件名"]
+        }
+
+        // 图片加载器
+        if lower.contains("image") && lower.contains("load") {
+            return ["图片"]
+        }
+
+        // CLIP 文本编码
+        if lower.contains("cliptextencode") {
+            return ["文本"]
+        }
+
+        // 空潜空间
+        if lower.contains("emptylatent") {
+            return ["宽度", "高度", "批大小"]
+        }
+
+        // 保存图片
+        if lower.contains("saveimage") {
+            return ["文件名前缀"]
+        }
+
+        // 视频加载器
+        if lower.contains("videoloader") || lower.contains("video_loader") {
+            return ["视频", "起始帧", "帧数"]
+        }
+
+        // 音频加载器
+        if lower.contains("audioloader") || lower.contains("audio_loader") {
+            return ["音频"]
+        }
+
         return nil
     }
 }

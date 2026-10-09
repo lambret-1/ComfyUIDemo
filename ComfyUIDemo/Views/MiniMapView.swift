@@ -20,8 +20,8 @@ struct MiniMapView: View {
     private let mapHeight: CGFloat = 90
     /// 内边距
     private let padding: CGFloat = 6
-    /// 折叠状态
-    @State private var isCollapsed: Bool = false
+    /// 折叠状态（默认折叠，避免遮挡节点）
+    @State private var isCollapsed: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
