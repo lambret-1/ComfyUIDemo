@@ -37,6 +37,12 @@ struct WorkflowCanvasView: View {
     @State private var connectingFromPoint: CGPoint?
     /// 当前被吸附的输入插槽（用于高亮显示和自动吸附）
     @State private var snappedInputSlot: (nodeId: Int, slotIndex: Int)?
+    /// 正在拖动的节点ID（节点自由移动）
+    @State private var draggingNodeId: Int?
+    /// 拖动开始时节点的位置（世界坐标）
+    @State private var dragStartNodePos: CGPoint?
+    /// 拖动开始时手指的位置（世界坐标）
+    @State private var dragStartTouchPos: CGPoint?
 
     var body: some View {
         GeometryReader { geometry in
@@ -98,6 +104,18 @@ struct WorkflowCanvasView: View {
                                     return
                                 }
 
+                                // 正在拖动节点时，更新节点位置
+                                if let nodeId = draggingNodeId,
+                                   let startPos = dragStartNodePos,
+                                   let startTouch = dragStartTouchPos {
+                                    let currentWorldX = (value.location.x - offset.x) / zoom
+                                    let currentWorldY = (value.location.y - offset.y) / zoom
+                                    let deltaX = currentWorldX - startTouch.x
+                                    let deltaY = currentWorldY - startTouch.y
+                                    moveNode(id: nodeId, to: CGPoint(x: startPos.x + deltaX, y: startPos.y + deltaY))
+                                    return
+                                }
+
                                 let startWorldX = (value.startLocation.x - offset.x) / zoom
                                 let startWorldY = (value.startLocation.y - offset.y) / zoom
                                 let startPoint = CGPoint(x: startWorldX, y: startWorldY)
@@ -123,7 +141,15 @@ struct WorkflowCanvasView: View {
                                     return
                                 }
 
-                                // 起点不在滑块/插槽区域 → 平移画布
+                                // 检查是否点击了节点的可拖动区域（节点上但不在控件区域）
+                                if let node = hitTestNodeDraggableArea(point: startPoint) {
+                                    draggingNodeId = node.id
+                                    dragStartNodePos = node.position
+                                    dragStartTouchPos = startPoint
+                                    return
+                                }
+
+                                // 起点不在节点/滑块/插槽区域 → 平移画布
                                 offset = CGPoint(
                                     x: lastOffset.x + value.translation.width,
                                     y: lastOffset.y + value.translation.height
@@ -145,6 +171,14 @@ struct WorkflowCanvasView: View {
                                     connectingFromPoint = nil
                                     connectingTo = nil
                                     snappedInputSlot = nil
+                                    return
+                                }
+
+                                // 结束节点拖动
+                                if draggingNodeId != nil {
+                                    draggingNodeId = nil
+                                    dragStartNodePos = nil
+                                    dragStartTouchPos = nil
                                     return
                                 }
 
@@ -409,6 +443,11 @@ struct WorkflowCanvasView: View {
             // 高亮节点发光效果（搜索定位）
             if highlightedId == node.id {
                 context.fill(shape.path(in: rect.insetBy(dx: -6, dy: -6)), with: .color(.yellow.opacity(0.4)))
+            }
+
+            // 正在拖动节点的阴影效果
+            if draggingNodeId == node.id {
+                context.fill(shape.path(in: rect.insetBy(dx: -4, dy: -4)), with: .color(.black.opacity(0.2)))
             }
 
             context.fill(shape.path(in: rect), with: .color(node.bodyColor))
@@ -770,6 +809,59 @@ struct WorkflowCanvasView: View {
             node.widgetsValues = widgets
             workflow.nodes[nodeIndex] = node
         }
+    }
+
+    // MARK: - 节点拖动
+
+    /// 命中测试：判断点击位置是否在节点的可拖动区域（节点上但不在控件区域、输出插槽、详情按钮）
+    private func hitTestNodeDraggableArea(point: CGPoint) -> NodeModel? {
+        for node in workflow.nodes {
+            let rect = CGRect(origin: node.position, size: node.nodeSize)
+            guard rect.contains(point) else { continue }
+
+            let headerHeight = min(30, rect.height * 0.4)
+
+            // 排除右上角详情按钮区域
+            let infoButtonSize: CGFloat = 24
+            let infoButtonX = rect.maxX - infoButtonSize - 3
+            let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
+            let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
+            if infoButtonRect.contains(point) { continue }
+
+            // 排除输出插槽区域（右侧边缘）
+            if hitTestOutputSlot(point: point) != nil { continue }
+
+            // 排除控件区域
+            let widgetTop = rect.minY + headerHeight + 6
+            let widgetBottom = rect.maxY - 20
+            let baseLeftInset: CGFloat = 75
+            let baseRightInset: CGFloat = 85
+            let minWidgetWidth: CGFloat = 60
+            var leftInset = baseLeftInset
+            var rightInset = baseRightInset
+            if rect.width - leftInset - rightInset < minWidgetWidth {
+                let available = rect.width - minWidgetWidth
+                let totalInset = baseLeftInset + baseRightInset
+                let scale = min(1.0, available / totalInset)
+                leftInset = baseLeftInset * scale
+                rightInset = baseRightInset * scale
+            }
+            let widgetX = rect.minX + leftInset
+            let widgetWidth = rect.width - leftInset - rightInset
+            let widgetRect = CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
+            if widgetRect.contains(point) { continue }
+
+            // 在节点上但不在排除区域 → 可拖动
+            return node
+        }
+        return nil
+    }
+
+    /// 移动节点到指定位置（世界坐标）
+    private func moveNode(id: Int, to position: CGPoint) {
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == id }) else { return }
+        workflow.nodes[nodeIndex].pos[0] = Double(position.x)
+        workflow.nodes[nodeIndex].pos[1] = Double(position.y)
     }
 
     /// 命中测试：判断点击位置是否在滑块区域，返回滑块信息
