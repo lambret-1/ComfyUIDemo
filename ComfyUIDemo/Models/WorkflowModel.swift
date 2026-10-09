@@ -159,13 +159,9 @@ struct NodeModel: Codable, Identifiable, Hashable {
         return (0..<widgetCount).map { "参数\($0 + 1)" }
     }
 
-    /// 节点主体背景色（优先自定义颜色，否则按类型匹配）
-    /// 节点主体背景色（完全不透明，确保彻底遮挡连线避免穿模）
+    /// 节点主体背景色（始终为白色/浅灰，colorHex仅用于标题栏，避免整个节点被颜色填充）
     var bodyColor: Color {
-        if let hex = colorHex, let color = Color(hex: hex) {
-            return color.opacity(1.0)
-        }
-        return Color(.secondarySystemBackground)
+        Color(.secondarySystemBackground)
     }
 
     /// 节点标题栏背景色

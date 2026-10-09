@@ -6,11 +6,24 @@ struct NodeLibraryMenu: View {
     let onSelect: (NodeDefinition) -> Void
     /// 关闭回调
     let onDismiss: () -> Void
+    /// 搜索关键词
+    @State private var searchText: String = ""
+
+    /// 过滤后的节点列表
+    private var filteredNodes: [NodeDefinition] {
+        let all = Array(MiniMaxH3NodeDatabase.allNodes.values)
+        guard !searchText.isEmpty else { return all }
+        let keyword = searchText.lowercased()
+        return all.filter { node in
+            node.displayName.lowercased().contains(keyword) ||
+            node.type.lowercased().contains(keyword) ||
+            node.category.rawValue.contains(keyword)
+        }
+    }
 
     /// 按分类分组的节点列表
     private var groupedNodes: [(NodeCategory, [NodeDefinition])] {
-        let all = Array(MiniMaxH3NodeDatabase.allNodes.values)
-        let grouped = Dictionary(grouping: all) { $0.category }
+        let grouped = Dictionary(grouping: filteredNodes) { $0.category }
         return grouped.sorted { $0.key.rawValue < $1.key.rawValue }
     }
 
@@ -62,6 +75,7 @@ struct NodeLibraryMenu: View {
                     }
                 }
             }
+            .searchable(text: $searchText, prompt: "搜索节点名称或类型")
             .navigationTitle("节点库")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
