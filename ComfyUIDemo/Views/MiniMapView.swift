@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 画布小地图：右下角悬浮，显示节点分布与当前视野
+/// 画布小地图：右下角悬浮，显示节点分布与当前视野，支持点击跳转
 struct MiniMapView: View {
     /// 工作流数据
     let workflow: WorkflowModel
@@ -14,33 +14,51 @@ struct MiniMapView: View {
     let onTap: (CGPoint) -> Void
 
     /// 小地图尺寸
-    private let mapWidth: CGFloat = 120
-    private let mapHeight: CGFloat = 84
+    private let mapWidth: CGFloat = 130
+    private let mapHeight: CGFloat = 90
+    /// 内边距
+    private let padding: CGFloat = 6
 
     var body: some View {
         Canvas { context, size in
             // 小地图背景
             let bgRect = CGRect(origin: .zero, size: size)
-            context.fill(Path(bgRect), with: .color(Color.black.opacity(0.6)))
-            context.stroke(Path(bgRect), with: .color(.white.opacity(0.3)), lineWidth: 1)
+            context.fill(Path(bgRect), with: .color(Color.black.opacity(0.75)))
+            context.stroke(Path(bgRect), with: .color(.white.opacity(0.4)), lineWidth: 1)
 
-            // 计算节点包围盒与缩放比例
-            guard let box = nodeBoundingBox else { return }
-            let scaleX = (size.width - 8) / max(box.width, 1)
-            let scaleY = (size.height - 8) / max(box.height, 1)
-            let scale = min(scaleX, scaleY)
-            let mapOffsetX = (size.width - box.width * scale) / 2 - box.minX * scale
-            let mapOffsetY = (size.height - box.height * scale) / 2 - box.minY * scale
+            // 计算所有节点（含分组）的包围盒
+            guard let box = contentBoundingBox else { return }
+            guard box.width > 0, box.height > 0 else { return }
+
+            // 等比缩放（Uniform Scale）
+            let availableW = size.width - padding * 2
+            let availableH = size.height - padding * 2
+            let scale = min(availableW / box.width, availableH / box.height)
+            let contentW = box.width * scale
+            let contentH = box.height * scale
+            let offsetX = (size.width - contentW) / 2 - box.minX * scale
+            let offsetY = (size.height - contentH) / 2 - box.minY * scale
+
+            // 绘制分组背景（底层）
+            for group in workflow.groups {
+                let gRect = CGRect(
+                    x: group.frame.minX * scale + offsetX,
+                    y: group.frame.minY * scale + offsetY,
+                    width: max(group.frame.width * scale, 1),
+                    height: max(group.frame.height * scale, 1)
+                )
+                context.fill(Path(gRect), with: .color(group.borderColor.opacity(0.25)))
+            }
 
             // 绘制节点色块
             for node in workflow.nodes {
                 let nodeRect = CGRect(
-                    x: node.position.x * scale + mapOffsetX,
-                    y: node.position.y * scale + mapOffsetY,
-                    width: max(node.nodeSize.width * scale, 2),
-                    height: max(node.nodeSize.height * scale, 2)
+                    x: node.position.x * scale + offsetX,
+                    y: node.position.y * scale + offsetY,
+                    width: max(node.nodeSize.width * scale, 3),
+                    height: max(node.nodeSize.height * scale, 3)
                 )
-                context.fill(Path(nodeRect), with: .color(node.headerColor.opacity(0.8)))
+                context.fill(Path(nodeRect), with: .color(node.headerColor))
             }
 
             // 绘制当前视野框（红色）
@@ -51,45 +69,54 @@ struct MiniMapView: View {
                 height: viewSize.height / zoom
             )
             let viewMapRect = CGRect(
-                x: viewWorldRect.minX * scale + mapOffsetX,
-                y: viewWorldRect.minY * scale + mapOffsetY,
+                x: viewWorldRect.minX * scale + offsetX,
+                y: viewWorldRect.minY * scale + offsetY,
                 width: viewWorldRect.width * scale,
                 height: viewWorldRect.height * scale
             )
             context.stroke(Path(viewMapRect), with: .color(.red), lineWidth: 1.5)
+            context.fill(Path(viewMapRect), with: .color(.red.opacity(0.08)))
         }
         .frame(width: mapWidth, height: mapHeight)
         .cornerRadius(8)
         .contentShape(Rectangle())
         .onTapGesture { location in
             // 将小地图点击坐标转换为画布世界坐标
-            guard let box = nodeBoundingBox else { return }
-            let scaleX = (mapWidth - 8) / max(box.width, 1)
-            let scaleY = (mapHeight - 8) / max(box.height, 1)
-            let scale = min(scaleX, scaleY)
-            let mapOffsetX = (mapWidth - box.width * scale) / 2 - box.minX * scale
-            let mapOffsetY = (mapHeight - box.height * scale) / 2 - box.minY * scale
+            guard let box = contentBoundingBox else { return }
+            guard box.width > 0, box.height > 0 else { return }
+            let availableW = mapWidth - padding * 2
+            let availableH = mapHeight - padding * 2
+            let scale = min(availableW / box.width, availableH / box.height)
+            let contentW = box.width * scale
+            let contentH = box.height * scale
+            let offsetX = (mapWidth - contentW) / 2 - box.minX * scale
+            let offsetY = (mapHeight - contentH) / 2 - box.minY * scale
 
-            let worldX = (location.x - mapOffsetX) / scale
-            let worldY = (location.y - mapOffsetY) / scale
+            let worldX = (location.x - offsetX) / scale
+            let worldY = (location.y - offsetY) / scale
             onTap(CGPoint(x: worldX, y: worldY))
         }
     }
 
-    /// 所有节点的包围盒
-    private var nodeBoundingBox: CGRect? {
-        guard !workflow.nodes.isEmpty else { return nil }
+    /// 所有节点与分组的包围盒
+    private var contentBoundingBox: CGRect? {
+        var boxes: [CGRect] = workflow.nodes.map {
+            CGRect(origin: $0.position, size: $0.nodeSize)
+        }
+        boxes.append(contentsOf: workflow.groups.map { $0.frame })
+        guard !boxes.isEmpty else { return nil }
         var minX = CGFloat.greatestFiniteMagnitude
         var minY = CGFloat.greatestFiniteMagnitude
         var maxX = -CGFloat.greatestFiniteMagnitude
         var maxY = -CGFloat.greatestFiniteMagnitude
-        for node in workflow.nodes {
-            let r = CGRect(origin: node.position, size: node.nodeSize)
-            minX = min(minX, r.minX)
-            minY = min(minY, r.minY)
-            maxX = max(maxX, r.maxX)
-            maxY = max(maxY, r.maxY)
+        for box in boxes {
+            guard box.width > 0, box.height > 0 else { continue }
+            minX = min(minX, box.minX)
+            minY = min(minY, box.minY)
+            maxX = max(maxX, box.maxX)
+            maxY = max(maxY, box.maxY)
         }
+        guard minX != .greatestFiniteMagnitude else { return nil }
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }

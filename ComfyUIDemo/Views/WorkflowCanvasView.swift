@@ -325,16 +325,37 @@ struct WorkflowCanvasView: View {
 
             case .text:
                 let text = widget.displayString
-                let maxChars = max(6, Int(rect.width / 5.5))
-                let displayText = text.count > maxChars ? String(text.prefix(maxChars)) + "…" : text
-                let textRect = CGRect(x: rect.minX, y: controlY, width: min(rect.width, CGFloat(maxChars) * 5.5 + 8), height: controlHeight)
+                // 长文本支持多行显示
+                let font = UIFont.systemFont(ofSize: 8)
+                let maxTextWidth = rect.width - 8
+                let textHeight = text.boundingRect(
+                    with: CGSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: font],
+                    context: nil
+                ).height
+                let neededHeight = max(controlHeight, ceil(textHeight) + 4)
+                // 如果当前行剩余空间不够，跳过
+                guard currentY + labelHeight + 1 + neededHeight <= rect.maxY else {
+                    let remaining = widgets.count - index
+                    let moreText = Text("… +\(remaining) 更多参数")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                    context.draw(moreText, in: CGRect(x: rect.minX, y: currentY, width: rect.width, height: 14))
+                    return
+                }
+                let textRect = CGRect(x: rect.minX, y: controlY, width: rect.width, height: neededHeight)
                 let textShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(textShape.path(in: textRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(textShape.path(in: textRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
-                let textView = Text(displayText)
+                let textView = Text(text)
                     .font(.system(size: 8))
                     .foregroundColor(.primary)
-                context.draw(textView, in: textRect.insetBy(dx: 4, dy: 1))
+                    .lineLimit(nil)
+                    .multilineTextAlignment(.leading)
+                context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
+                // 多行文本占用额外行高
+                currentY += max(0, neededHeight - controlHeight)
             }
 
             currentY += rowHeight

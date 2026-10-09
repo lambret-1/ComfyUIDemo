@@ -130,9 +130,10 @@ struct NodeModel: Codable, Identifiable, Hashable {
     }
 
     /// 节点主体背景色（优先自定义颜色，否则按类型匹配）
+    /// 节点主体背景色（不透明，确保遮挡连线）
     var bodyColor: Color {
         if let hex = colorHex, let color = Color(hex: hex) {
-            return color.opacity(0.15)
+            return color.opacity(0.92)
         }
         return Color(.secondarySystemBackground)
     }
@@ -335,20 +336,20 @@ struct GroupModel: Codable, Identifiable, Hashable {
         )
     }
 
-    /// 分组背景色
+    /// 分组背景色（增强可见性）
     var groupColor: Color {
         if let hex = colorHex, let color = Color(hex: hex) {
-            return color.opacity(0.12)
+            return color.opacity(0.18)
         }
-        return Color.blue.opacity(0.08)
+        return Color.blue.opacity(0.12)
     }
 
-    /// 分组边框色
+    /// 分组边框色（增强可见性）
     var borderColor: Color {
         if let hex = colorHex, let color = Color(hex: hex) {
-            return color.opacity(0.5)
+            return color.opacity(0.85)
         }
-        return Color.blue.opacity(0.3)
+        return Color.blue.opacity(0.6)
     }
 
     enum CodingKeys: String, CodingKey {
