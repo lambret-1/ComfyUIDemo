@@ -131,29 +131,32 @@ struct WorkflowCanvasView: View {
 
     /// 节点层：使用SwiftUI视图渲染所有节点，支持自由拖动和参数编辑
     private var nodesLayer: some View {
-        ZStack(alignment: .topLeading) {
-            ForEach(workflow.nodes) { node in
-                let screenX = node.position.x * zoom + offset.x
-                let screenY = node.position.y * zoom + offset.y
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                ForEach(workflow.nodes) { node in
+                    let screenX = node.position.x * zoom + offset.x
+                    let screenY = node.position.y * zoom + offset.y
 
-                NodeView(
-                    node: node,
-                    isSelected: selectedNodeIdForEdit == node.id,
-                    isHighlighted: highlightedNodeId == node.id,
-                    viewModel: viewModel,
-                    onTap: {
-                        viewModel.selectNode(node.id)
-                    },
-                    onInfo: {
-                        selectedNodeId = node.id
-                    },
-                    onDrag: { translation in
-                        viewModel.moveNode(id: node.id, by: translation)
-                    }
-                )
-                .scaleEffect(zoom, anchor: .topLeading)
-                .offset(x: screenX, y: screenY)
+                    NodeView(
+                        node: node,
+                        isSelected: selectedNodeIdForEdit == node.id,
+                        isHighlighted: highlightedNodeId == node.id,
+                        viewModel: viewModel,
+                        onTap: {
+                            viewModel.selectNode(node.id)
+                        },
+                        onInfo: {
+                            selectedNodeId = node.id
+                        },
+                        onDrag: { translation in
+                            viewModel.moveNode(id: node.id, by: translation)
+                        }
+                    )
+                    .scaleEffect(zoom, anchor: .topLeading)
+                    .offset(x: screenX, y: screenY)
+                }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
 
