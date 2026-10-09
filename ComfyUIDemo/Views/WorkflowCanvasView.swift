@@ -76,8 +76,15 @@ struct WorkflowCanvasView: View {
                     let worldX = (location.x - offset.x) / zoom
                     let worldY = (location.y - offset.y) / zoom
                     let worldPoint = CGPoint(x: worldX, y: worldY)
+                    // 仅当点击节点右上角双圈圆点（详情入口）时才弹出详情页
                     selectedNodeId = workflow.nodes.first { node in
-                        CGRect(origin: node.position, size: node.nodeSize).contains(worldPoint)
+                        let rect = CGRect(origin: node.position, size: node.nodeSize)
+                        let headerHeight = min(30, rect.height * 0.4)
+                        let infoButtonSize: CGFloat = 24 // 扩大点击区域
+                        let infoButtonX = rect.maxX - infoButtonSize - 3
+                        let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
+                        let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
+                        return infoButtonRect.contains(worldPoint)
                     }?.id
                 }
                 .sheet(item: Binding(
@@ -241,6 +248,17 @@ struct WorkflowCanvasView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.white)
             context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
+
+            // 右上角双圈圆点（详情页入口）
+            let infoButtonSize: CGFloat = 18
+            let infoButtonX = rect.maxX - infoButtonSize - 6
+            let infoButtonY = headerRect.midY - infoButtonSize / 2
+            let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
+            // 外圈
+            context.stroke(Path(ellipseIn: infoButtonRect), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
+            // 内圈
+            let innerInset: CGFloat = 4
+            context.stroke(Path(ellipseIn: infoButtonRect.insetBy(dx: innerInset, dy: innerInset)), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
 
             // 控件区域（居中，避开左右两侧插槽标签区域）
             // 左侧输入插槽标签最大宽度60pt + 圆点5pt + 间距 = 75pt
