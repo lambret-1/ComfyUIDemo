@@ -13,6 +13,11 @@ struct ContentView: View {
     /// 错误提示
     @State private var errorMessage: String?
 
+    /// 应用版本号（从Info.plist读取）
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
@@ -91,7 +96,12 @@ struct ContentView: View {
                 }
 
                 Spacer()
-                Spacer()
+
+                // 底部版本号
+                Text("版本 \(appVersion)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.bottom, 16)
             }
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
