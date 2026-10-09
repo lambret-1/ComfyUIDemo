@@ -208,11 +208,11 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 插槽绘制与定位
 
-    /// 绘制节点的输入/输出插槽
+    /// 绘制节点的输入/输出插槽及名称标签
     private func drawSlots(context: GraphicsContext, node: NodeModel) {
-        // 输出插槽（节点右侧）
+        // 输出插槽（节点右侧，名称在圆点左侧）
         if let outputs = node.outputs {
-            for (index, _) in outputs.enumerated() {
+            for (index, slot) in outputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: true)
                 let dotSize: CGFloat = 10
                 let dotRect = CGRect(
@@ -223,12 +223,21 @@ struct WorkflowCanvasView: View {
                 )
                 context.fill(Path(ellipseIn: dotRect), with: .color(.orange))
                 context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
+
+                // 插槽名称标签（圆点左侧，右对齐）
+                if let slotName = slot.name, !slotName.isEmpty {
+                    let nameText = Text(slotName)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    let labelPoint = CGPoint(x: point.x - dotSize / 2 - 4, y: point.y)
+                    context.draw(nameText, at: labelPoint, anchor: .trailing)
+                }
             }
         }
 
-        // 输入插槽（节点左侧）
+        // 输入插槽（节点左侧，名称在圆点右侧）
         if let inputs = node.inputs {
-            for (index, _) in inputs.enumerated() {
+            for (index, slot) in inputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
                 let dotSize: CGFloat = 10
                 let dotRect = CGRect(
@@ -239,6 +248,15 @@ struct WorkflowCanvasView: View {
                 )
                 context.fill(Path(ellipseIn: dotRect), with: .color(.purple))
                 context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
+
+                // 插槽名称标签（圆点右侧，左对齐）
+                if let slotName = slot.name, !slotName.isEmpty {
+                    let nameText = Text(slotName)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    let labelPoint = CGPoint(x: point.x + dotSize / 2 + 4, y: point.y)
+                    context.draw(nameText, at: labelPoint, anchor: .leading)
+                }
             }
         }
     }
