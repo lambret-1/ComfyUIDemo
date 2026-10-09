@@ -154,6 +154,43 @@ struct WorkflowCanvasView: View {
         }
     }
 
+    // MARK: - 背景网格
+
+    /// 绘制背景网格（屏幕坐标系，不随缩放变化）
+    private func drawGrid(context: GraphicsContext, viewSize: CGSize) {
+        let gridSize: CGFloat = 20
+        let path = Path { p in
+            var x: CGFloat = 0
+            while x <= viewSize.width {
+                p.move(to: CGPoint(x: x, y: 0))
+                p.addLine(to: CGPoint(x: x, y: viewSize.height))
+                x += gridSize
+            }
+            var y: CGFloat = 0
+            while y <= viewSize.height {
+                p.move(to: CGPoint(x: 0, y: y))
+                p.addLine(to: CGPoint(x: viewSize.width, y: y))
+                y += gridSize
+            }
+        }
+        context.stroke(path, with: .color(Color.gray.opacity(0.15)), lineWidth: 0.5)
+    }
+
+    // MARK: - 插槽位置计算
+
+    /// 计算插槽在画布坐标系中的位置（用于连线端点）
+    private func getSlotPosition(node: NodeModel, slotIndex: Int, isOutput: Bool) -> CGPoint {
+        let headerHeight: CGFloat = 30
+        let rowHeight: CGFloat = 22
+        let slotY = node.position.y + headerHeight + 6 + CGFloat(slotIndex) * rowHeight + 8
+
+        if isOutput {
+            return CGPoint(x: node.position.x + node.nodeSize.width, y: slotY)
+        } else {
+            return CGPoint(x: node.position.x, y: slotY)
+        }
+    }
+
     // MARK: - 分组绘制
 
     /// 绘制分组背景框与标题（最底层，ComfyUI风格）
