@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 工作流画布视图：使用 SwiftUI Canvas 高性能渲染节点与连线
+/// 工作流画布视图：使用 SwiftUI Canvas 高性能渲染分组、连线、节点与控件
 /// 支持双指缩放、单指拖拽、节点点击查看详情、重置视角
 struct WorkflowCanvasView: View {
     /// 工作流数据
@@ -9,42 +9,35 @@ struct WorkflowCanvasView: View {
     @State private var offset: CGPoint = .zero
     /// 当前缩放比例
     @State private var zoom: CGFloat = 1.0
-    /// 上一次手势结束时的平移偏移（用于累加）
+    /// 上一次手势结束时的平移偏移
     @State private var lastOffset: CGPoint = .zero
-    /// 上一次手势结束时的缩放比例（用于累加）
+    /// 上一次手势结束时的缩放比例
     @State private var lastZoom: CGFloat = 1.0
-    /// 当前选中的节点（用于弹出详情）
+    /// 当前选中的节点
     @State private var selectedNode: NodeModel?
-    /// 视图尺寸（用于适配计算）
-    @State private var viewSize: CGSize = .zero
     /// 是否已经执行过初始适配
     @State private var hasFitted = false
 
     var body: some View {
         GeometryReader { geometry in
             Canvas { context, size in
-                // 记录视图尺寸
-                if viewSize != size {
-                    DispatchQueue.main.async {
-                        viewSize = size
-                    }
-                }
-
-                // 绘制背景网格（在屏幕坐标系，不随画布变换）
+                // 绘制背景网格（屏幕坐标系）
                 drawGrid(context: context, viewSize: size)
 
-                // 高性能：在 Canvas 内部执行矩阵变换，避免外层 scaleEffect 触发离屏渲染
+                // 画布内部矩阵变换
                 context.translateBy(x: offset.x, y: offset.y)
                 context.scaleBy(x: zoom, y: zoom)
 
-                // 先绘制连线（底层）
+                // 层级1：分组背景（最底层）
+                drawGroups(context: context)
+
+                // 层级2：连线
                 drawLinks(context: context)
 
-                // 再绘制节点（上层）
+                // 层级3：节点
                 drawNodes(context: context)
             }
             .gesture(
-                // 同时识别拖拽与缩放手势，互不干扰
                 SimultaneousGesture(
                     DragGesture()
                         .onChanged { value in
@@ -58,12 +51,11 @@ struct WorkflowCanvasView: View {
                         },
                     MagnificationGesture()
                         .onChanged { value in
-                            let newZoom = CanvasMath.clamp(
+                            zoom = CanvasMath.clamp(
                                 lastZoom * value,
                                 min: CanvasMath.minZoom,
                                 max: CanvasMath.maxZoom
                             )
-                            zoom = newZoom
                         }
                         .onEnded { _ in
                             lastZoom = zoom
@@ -71,24 +63,20 @@ struct WorkflowCanvasView: View {
                 )
             )
             .onTapGesture { location in
-                // 将屏幕坐标反向变换为画布世界坐标
                 let worldX = (location.x - offset.x) / zoom
                 let worldY = (location.y - offset.y) / zoom
                 let worldPoint = CGPoint(x: worldX, y: worldY)
-
-                // 命中检测：遍历节点，找到包含点击坐标的节点
                 selectedNode = workflow.nodes.first { node in
                     CGRect(origin: node.position, size: node.nodeSize).contains(worldPoint)
                 }
             }
             .sheet(item: $selectedNode) { node in
-                NodeDetailSheet(node: node)
+                NodeDetailSheet(node: node, workflow: workflow)
             }
             .onReceive(NotificationCenter.default.publisher(for: .resetCanvasView)) { _ in
                 fitToView(size: geometry.size)
             }
             .onAppear {
-                // 首次出现时自动适配视图
                 if !hasFitted {
                     hasFitted = true
                     DispatchQueue.main.async {
@@ -98,6 +86,31 @@ struct WorkflowCanvasView: View {
             }
         }
         .background(Color(.systemBackground))
+    }
+
+    // MARK: - 分组绘制
+
+    /// 绘制分组背景框与标题（最底层）
+    private func drawGroups(context: GraphicsContext) {
+        for group in workflow.groups {
+            let rect = group.frame
+            guard rect.width > 0, rect.height > 0 else { continue }
+
+            let shape = RoundedRectangle(cornerRadius: 12)
+            context.fill(shape.path(in: rect), with: .color(group.groupColor))
+            context.stroke(shape.path(in: rect), with: .color(group.borderColor), lineWidth: 1.5)
+
+            let titleText = Text(group.title)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(group.borderColor)
+            let titleRect = CGRect(
+                x: rect.minX + 12,
+                y: rect.minY + 8,
+                width: rect.width - 24,
+                height: 20
+            )
+            context.draw(titleText, in: titleRect)
+        }
     }
 
     // MARK: - 连线绘制
@@ -122,36 +135,22 @@ struct WorkflowCanvasView: View {
             )
 
             let path = bezierLinkPath(from: sourcePoint, to: targetPoint)
-            let linkColor = colorForLinkType(link.linkType)
+            let sourceSlotType = sourceNode.outputs?[safe: link.sourceSlot]?.type
+            let linkColor = SlotTypeColor.color(for: sourceSlotType ?? link.linkType)
             context.stroke(path, with: .color(linkColor), lineWidth: 2.5)
         }
     }
 
-    /// 生成两点间的三次贝塞尔曲线路径（ComfyUI 风格横向连线）
+    /// 生成两点间的三次贝塞尔曲线路径
     private func bezierLinkPath(from: CGPoint, to: CGPoint) -> Path {
         Path { path in
             path.move(to: from)
-            let controlOffset = max(abs(to.x - from.x) * 0.5, 40)
+            let controlOffset = max(abs(to.x - from.x) * 0.5, 50)
             path.addCurve(
                 to: to,
                 control1: CGPoint(x: from.x + controlOffset, y: from.y),
                 control2: CGPoint(x: to.x - controlOffset, y: to.y)
             )
-        }
-    }
-
-    /// 根据连线数据类型返回颜色
-    private func colorForLinkType(_ type: String?) -> Color {
-        guard let type = type else { return .blue }
-        switch type.uppercased() {
-        case "MODEL": return .orange
-        case "CLIP": return .green
-        case "VAE": return .purple
-        case "LATENT": return .pink
-        case "IMAGE": return .blue
-        case "CONDITIONING": return .yellow
-        case "MASK": return .gray
-        default: return .blue
         }
     }
 
@@ -163,12 +162,9 @@ struct WorkflowCanvasView: View {
             let rect = CGRect(origin: node.position, size: node.nodeSize)
             let shape = RoundedRectangle(cornerRadius: 8)
 
-            // 节点背景
-            context.fill(shape.path(in: rect), with: .color(Color(.secondarySystemBackground)))
-            // 节点边框（画布坐标系固定线宽，随缩放自然变化）
-            context.stroke(shape.path(in: rect), with: .color(.teal), lineWidth: 2)
+            context.fill(shape.path(in: rect), with: .color(node.bodyColor))
+            context.stroke(shape.path(in: rect), with: .color(node.headerColor), lineWidth: 2)
 
-            // 节点标题栏（固定高度30，不超过节点高度的40%）
             let headerHeight = min(30, rect.height * 0.4)
             let headerRect = CGRect(
                 x: rect.minX,
@@ -176,17 +172,26 @@ struct WorkflowCanvasView: View {
                 width: rect.width,
                 height: headerHeight
             )
-            // 深色标题栏确保白色文字清晰可读
-            context.fill(shape.path(in: headerRect), with: .color(Color(red: 0.0, green: 0.45, blue: 0.45)))
+            context.fill(shape.path(in: headerRect), with: .color(node.headerColor))
 
-            // 节点标题文本（画布坐标系固定字号，随缩放自然变化）
             let titleText = Text(node.displayTitle)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.white)
             context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
 
-            // 节点类型文字（置于节点底部，避免与插槽名称重叠）
-            let typeLabelHeight: CGFloat = 18
+            // 控件区域
+            let widgetTop = headerRect.maxY + 6
+            let widgetBottom = rect.maxY - 20
+            if let widgets = node.widgetsValues, !widgets.isEmpty {
+                drawWidgets(
+                    context: context,
+                    widgets: widgets,
+                    in: CGRect(x: rect.minX + 8, y: widgetTop, width: rect.width - 16, height: widgetBottom - widgetTop)
+                )
+            }
+
+            // 节点类型文字（底部）
+            let typeLabelHeight: CGFloat = 16
             let typeRect = CGRect(
                 x: rect.minX,
                 y: rect.maxY - typeLabelHeight,
@@ -194,12 +199,64 @@ struct WorkflowCanvasView: View {
                 height: typeLabelHeight
             )
             let typeText = Text(node.type)
-                .font(.system(size: 9))
+                .font(.system(size: 8))
                 .foregroundColor(.secondary)
             context.draw(typeText, in: typeRect.insetBy(dx: 8, dy: 2))
 
-            // 绘制插槽圆点及名称
             drawSlots(context: context, node: node)
+        }
+    }
+
+    // MARK: - 控件绘制
+
+    /// 绘制节点内部控件（只读展示）
+    private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], in rect: CGRect) {
+        let rowHeight: CGFloat = 18
+        var currentY = rect.minY
+
+        for (_, widget) in widgets.enumerated() {
+            guard currentY + rowHeight <= rect.maxY else {
+                if currentY < rect.maxY {
+                    let moreText = Text("… 更多参数")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                    context.draw(moreText, in: CGRect(x: rect.minX, y: currentY, width: rect.width, height: rowHeight))
+                }
+                break
+            }
+
+            let rowRect = CGRect(x: rect.minX, y: currentY, width: rect.width, height: rowHeight)
+
+            switch widget.widgetKind {
+            case .toggle:
+                let isOn = widget.displayString == "是"
+                let toggleRect = CGRect(x: rect.minX, y: currentY + 2, width: 32, height: 14)
+                let toggleShape = RoundedRectangle(cornerRadius: 7)
+                context.fill(toggleShape.path(in: toggleRect), with: .color(isOn ? .green : .gray.opacity(0.4)))
+                let knobX = isOn ? toggleRect.maxX - 12 : toggleRect.minX + 2
+                let knobRect = CGRect(x: knobX, y: toggleRect.minY + 1, width: 12, height: 12)
+                context.fill(Path(ellipseIn: knobRect), with: .color(.white))
+
+            case .number:
+                let numRect = CGRect(x: rect.minX, y: currentY + 1, width: min(rect.width, 80), height: 16)
+                let numShape = RoundedRectangle(cornerRadius: 4)
+                context.fill(numShape.path(in: numRect), with: .color(Color(.tertiarySystemBackground)))
+                context.stroke(numShape.path(in: numRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
+                let numText = Text(widget.displayString)
+                    .font(.system(size: 10))
+                    .foregroundColor(.primary)
+                context.draw(numText, in: numRect.insetBy(dx: 4, dy: 1))
+
+            case .text:
+                let text = widget.displayString
+                let displayText = text.count > 24 ? String(text.prefix(24)) + "…" : text
+                let textView = Text(displayText)
+                    .font(.system(size: 10))
+                    .foregroundColor(.primary)
+                context.draw(textView, in: rowRect)
+            }
+
+            currentY += rowHeight + 2
         }
     }
 
@@ -207,7 +264,6 @@ struct WorkflowCanvasView: View {
 
     /// 绘制节点的输入/输出插槽及名称标签
     private func drawSlots(context: GraphicsContext, node: NodeModel) {
-        // 输出插槽（节点右侧，名称在圆点左侧）
         if let outputs = node.outputs {
             for (index, slot) in outputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: true)
@@ -218,10 +274,10 @@ struct WorkflowCanvasView: View {
                     width: dotSize,
                     height: dotSize
                 )
-                context.fill(Path(ellipseIn: dotRect), with: .color(.orange))
+                let slotColor = SlotTypeColor.color(for: slot.type)
+                context.fill(Path(ellipseIn: dotRect), with: .color(slotColor))
                 context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
 
-                // 插槽名称标签（圆点左侧，右对齐）
                 if let slotName = slot.name, !slotName.isEmpty {
                     let nameText = Text(slotName)
                         .font(.system(size: 10))
@@ -232,7 +288,6 @@ struct WorkflowCanvasView: View {
             }
         }
 
-        // 输入插槽（节点左侧，名称在圆点右侧）
         if let inputs = node.inputs {
             for (index, slot) in inputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
@@ -243,10 +298,10 @@ struct WorkflowCanvasView: View {
                     width: dotSize,
                     height: dotSize
                 )
-                context.fill(Path(ellipseIn: dotRect), with: .color(.purple))
+                let slotColor = SlotTypeColor.color(for: slot.type)
+                context.fill(Path(ellipseIn: dotRect), with: .color(slotColor))
                 context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
 
-                // 插槽名称标签（圆点右侧，左对齐）
                 if let slotName = slot.name, !slotName.isEmpty {
                     let nameText = Text(slotName)
                         .font(.system(size: 10))
@@ -259,11 +314,6 @@ struct WorkflowCanvasView: View {
     }
 
     /// 计算插槽在画布中的坐标
-    /// - Parameters:
-    ///   - node: 所属节点
-    ///   - slotIndex: 插槽索引
-    ///   - isOutput: 是否为输出插槽（输出在右，输入在左）
-    /// - Returns: 插槽中心点坐标
     private func getSlotPosition(node: NodeModel, slotIndex: Int, isOutput: Bool) -> CGPoint {
         let rect = CGRect(origin: node.position, size: node.nodeSize)
         let headerHeight = min(30, rect.height * 0.4)
@@ -280,7 +330,6 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 背景网格
 
-    /// 绘制画布背景网格（屏幕坐标系，不随变换移动）
     private func drawGrid(context: GraphicsContext, viewSize: CGSize) {
         let gridStep: CGFloat = 40
         var path = Path()
@@ -297,25 +346,48 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 视角适配
 
-    /// 重置视角：计算包围盒并居中适配
     private func fitToView(size: CGSize) {
-        let box = CanvasMath.getBoundingBox(nodes: workflow.nodes)
+        var allBoxes: [CGRect] = workflow.nodes.map {
+            CGRect(origin: $0.position, size: $0.nodeSize)
+        }
+        allBoxes.append(contentsOf: workflow.groups.map { $0.frame })
+
+        guard !allBoxes.isEmpty else {
+            zoom = 1.0; offset = .zero; lastZoom = 1.0; lastOffset = .zero
+            return
+        }
+
+        var minX = CGFloat.greatestFiniteMagnitude
+        var minY = CGFloat.greatestFiniteMagnitude
+        var maxX = -CGFloat.greatestFiniteMagnitude
+        var maxY = -CGFloat.greatestFiniteMagnitude
+        for box in allBoxes {
+            minX = min(minX, box.minX)
+            minY = min(minY, box.minY)
+            maxX = max(maxX, box.maxX)
+            maxY = max(maxY, box.maxY)
+        }
+        let box = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+
         guard box.width > 0, box.height > 0 else {
-            zoom = 1.0
-            offset = .zero
-            lastZoom = 1.0
-            lastOffset = .zero
+            zoom = 1.0; offset = .zero; lastZoom = 1.0; lastOffset = .zero
             return
         }
 
         zoom = CanvasMath.computeFitScale(box: box, viewSize: size)
         lastZoom = zoom
-
-        // 居中偏移：使包围盒中心对齐视图中心
         offset = CGPoint(
             x: size.width / 2 - (box.midX * zoom),
             y: size.height / 2 - (box.midY * zoom)
         )
         lastOffset = offset
+    }
+}
+
+// MARK: - 数组安全下标
+
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

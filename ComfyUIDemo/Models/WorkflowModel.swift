@@ -1,11 +1,16 @@
 import Foundation
+import SwiftUI
+
+// MARK: - 工作流根模型
 
 /// 工作流根模型，对应 ComfyUI 导出的 workflow.json 顶层结构
 struct WorkflowModel: Codable {
     /// 节点列表
     var nodes: [NodeModel]
-    /// 连线列表（ComfyUI 原生为嵌套数组，已在解析器中转换为结构化模型）
+    /// 连线列表（ComfyUI 原生为嵌套数组，已转换为结构化模型）
     var links: [LinkModel]
+    /// 分组列表
+    var groups: [GroupModel]
 
     /// 以节点编号为键的快速查找表
     var nodeMap: [Int: NodeModel] {
@@ -14,13 +19,22 @@ struct WorkflowModel: Codable {
         }
     }
 
-    /// 自定义解码：兼容 ComfyUI 原生 links 为嵌套数组的格式
+    enum CodingKeys: String, CodingKey {
+        case nodes, links, groups
+    }
+
+    /// 自定义解码：兼容 ComfyUI 原生 links 为嵌套数组的格式，容错解析
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        nodes = try container.decode([NodeModel].self, forKey: .nodes)
+
+        // 节点容错解析：单个节点解析失败不影响整体
+        if let nodeContainers = try? container.decode([SafeDecodable<NodeModel>].self, forKey: .nodes) {
+            nodes = nodeContainers.compactMap { $0.value }
+        } else {
+            nodes = []
+        }
 
         // ComfyUI 原生 links 是 [[link_id, source_id, source_slot, target_id, target_slot, type]]
-        // 同时兼容已转换为对象数组的格式
         if let nestedLinks = try? container.decode([[RawLinkValue]].self, forKey: .links) {
             links = nestedLinks.compactMap { LinkModel(rawArray: $0) }
         } else if let objectLinks = try? container.decode([LinkModel].self, forKey: .links) {
@@ -28,14 +42,35 @@ struct WorkflowModel: Codable {
         } else {
             links = []
         }
+
+        // 分组容错解析
+        if let groupContainers = try? container.decode([SafeDecodable<GroupModel>].self, forKey: .groups) {
+            groups = groupContainers.compactMap { $0.value }
+        } else {
+            groups = []
+        }
     }
 }
 
+/// 安全解码包装器：单个元素解码失败时返回nil而不是抛出
+struct SafeDecodable<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws {
+        do {
+            value = try T(from: decoder)
+        } catch {
+            value = nil
+        }
+    }
+}
+
+// MARK: - 节点模型
+
 /// 节点模型，对应 ComfyUI nodes 数组中的单个节点
 struct NodeModel: Codable, Identifiable, Hashable {
-    /// 节点编号（ComfyUI 中为整数）
+    /// 节点编号
     let id: Int
-    /// 节点类型名称，如 "CheckpointLoaderSimple"
+    /// 节点类型名称
     let type: String
     /// 节点在画布中的位置 [x, y]
     let pos: [Double]
@@ -45,8 +80,14 @@ struct NodeModel: Codable, Identifiable, Hashable {
     let inputs: [SlotModel]?
     /// 输出插槽列表
     let outputs: [SlotModel]?
-    /// 节点标题（可选，ComfyUI 中可能为 widgets_values 或 title）
+    /// 节点标题
     let title: String?
+    /// 控件值列表（多态：字符串/数字/布尔）
+    let widgetsValues: [WidgetValue]?
+    /// 节点自定义颜色（ComfyUI 中为 "#RRGGBB" 格式）
+    let colorHex: String?
+    /// 节点标题栏自定义颜色
+    let titleColorHex: String?
 
     /// 计算属性：节点左上角坐标
     var position: CGPoint {
@@ -65,13 +106,35 @@ struct NodeModel: Codable, Identifiable, Hashable {
         title?.isEmpty == false ? title! : type
     }
 
+    /// 节点主体背景色（优先自定义颜色，否则按类型匹配）
+    var bodyColor: Color {
+        if let hex = colorHex, let color = Color(hex: hex) {
+            return color.opacity(0.15)
+        }
+        return Color(.secondarySystemBackground)
+    }
+
+    /// 节点标题栏背景色
+    var headerColor: Color {
+        if let hex = titleColorHex, let color = Color(hex: hex) {
+            return color
+        }
+        if let hex = colorHex, let color = Color(hex: hex) {
+            return color
+        }
+        return NodeTypeColor.color(for: type)
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, type, pos, size, inputs, outputs, title
+        case widgetsValues = "widgets_values"
+        case colorHex = "color"
+        case titleColorHex = "title_color"
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        // 兼容 id 为字符串或整数的情况
+        // 兼容 id 为字符串或整数
         if let intId = try? container.decode(Int.self, forKey: .id) {
             id = intId
         } else if let strId = try? container.decode(String.self, forKey: .id),
@@ -80,12 +143,21 @@ struct NodeModel: Codable, Identifiable, Hashable {
         } else {
             id = 0
         }
-        type = try container.decode(String.self, forKey: .type)
-        pos = try container.decode([Double].self, forKey: .pos)
-        size = try container.decode([Double].self, forKey: .size)
-        inputs = try container.decodeIfPresent([SlotModel].self, forKey: .inputs)
-        outputs = try container.decodeIfPresent([SlotModel].self, forKey: .outputs)
-        title = try container.decodeIfPresent(String.self, forKey: .title)
+        type = (try? container.decode(String.self, forKey: .type)) ?? "Unknown"
+        pos = (try? container.decode([Double].self, forKey: .pos)) ?? [0, 0]
+        size = (try? container.decode([Double].self, forKey: .size)) ?? [200, 80]
+        inputs = try? container.decodeIfPresent([SlotModel].self, forKey: .inputs)
+        outputs = try? container.decodeIfPresent([SlotModel].self, forKey: .outputs)
+        title = try? container.decodeIfPresent(String.self, forKey: .title)
+        colorHex = try? container.decodeIfPresent(String.self, forKey: .colorHex)
+        titleColorHex = try? container.decodeIfPresent(String.self, forKey: .titleColorHex)
+
+        // 多态 widgets_values 解析
+        if let rawWidgets = try? container.decode([RawWidgetValue].self, forKey: .widgetsValues) {
+            widgetsValues = rawWidgets.map { WidgetValue(raw: $0) }
+        } else {
+            widgetsValues = nil
+        }
     }
 
     func hash(into hasher: inout Hasher) {
@@ -97,27 +169,34 @@ struct NodeModel: Codable, Identifiable, Hashable {
     }
 }
 
+// MARK: - 插槽模型
+
 /// 插槽模型，对应节点的 inputs / outputs 数组元素
 struct SlotModel: Codable, Hashable {
     /// 插槽名称
     let name: String?
-    /// 插槽数据类型，如 "MODEL"、"CLIP"、"LATENT"
+    /// 插槽数据类型
     let type: String?
-    /// 插槽索引（ComfyUI 中部分节点提供）
+    /// 插槽索引
     let slotIndex: Int?
+    /// 关联的连线编号列表
+    let links: [Int]?
 
     enum CodingKeys: String, CodingKey {
-        case name, type
+        case name, type, links
         case slotIndex = "slot_index"
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = try container.decodeIfPresent(String.self, forKey: .name)
-        type = try container.decodeIfPresent(String.self, forKey: .type)
-        slotIndex = try container.decodeIfPresent(Int.self, forKey: .slotIndex)
+        name = try? container.decodeIfPresent(String.self, forKey: .name)
+        type = try? container.decodeIfPresent(String.self, forKey: .type)
+        slotIndex = try? container.decodeIfPresent(Int.self, forKey: .slotIndex)
+        links = try? container.decodeIfPresent([Int].self, forKey: .links)
     }
 }
+
+// MARK: - 连线模型
 
 /// 连线模型
 struct LinkModel: Codable, Identifiable, Hashable {
@@ -144,7 +223,6 @@ struct LinkModel: Codable, Identifiable, Hashable {
     }
 
     /// 从 ComfyUI 原生嵌套数组构造
-    /// 格式: [link_id(Int), source_id(Int), source_slot(Int), target_id(Int), target_slot(Int), type(String)]
     init?(rawArray: [RawLinkValue]) {
         guard rawArray.count >= 5,
               let linkId = rawArray[0].intValue,
@@ -160,6 +238,169 @@ struct LinkModel: Codable, Identifiable, Hashable {
         targetId = tgtId
         targetSlot = tgtSlot
         linkType = rawArray.count >= 6 ? rawArray[5].stringValue : nil
+    }
+}
+
+// MARK: - 分组模型
+
+/// 分组模型，对应 ComfyUI groups 数组
+struct GroupModel: Codable, Identifiable, Hashable {
+    /// 分组标题
+    let title: String
+    /// 分组边界框 [x, y, width, height]
+    let bounding: [Double]
+    /// 分组颜色
+    let colorHex: String?
+    /// 字体大小
+    let fontSize: Int?
+
+    var id: String { title }
+
+    /// 分组矩形
+    var frame: CGRect {
+        guard bounding.count >= 4 else { return .zero }
+        return CGRect(
+            x: bounding[0],
+            y: bounding[1],
+            width: bounding[2],
+            height: bounding[3]
+        )
+    }
+
+    /// 分组背景色
+    var groupColor: Color {
+        if let hex = colorHex, let color = Color(hex: hex) {
+            return color.opacity(0.12)
+        }
+        return Color.blue.opacity(0.08)
+    }
+
+    /// 分组边框色
+    var borderColor: Color {
+        if let hex = colorHex, let color = Color(hex: hex) {
+            return color.opacity(0.5)
+        }
+        return Color.blue.opacity(0.3)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case title, bounding, color
+        case fontSize = "font_size"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = (try? container.decode(String.self, forKey: .title)) ?? "未命名分组"
+        bounding = (try? container.decode([Double].self, forKey: .bounding)) ?? [0, 0, 200, 200]
+        colorHex = try? container.decodeIfPresent(String.self, forKey: .color)
+        fontSize = try? container.decodeIfPresent(Int.self, forKey: .fontSize)
+    }
+}
+
+// MARK: - 控件值（多态）
+
+/// 控件值类型枚举
+enum WidgetValue: Hashable, Codable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let boolVal = try? container.decode(Bool.self) {
+            self = .bool(boolVal)
+        } else if let intVal = try? container.decode(Int.self) {
+            self = .int(intVal)
+        } else if let doubleVal = try? container.decode(Double.self) {
+            self = .double(doubleVal)
+        } else if let strVal = try? container.decode(String.self) {
+            self = .string(strVal)
+        } else {
+            self = .null
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try container.encode(v)
+        case .int(let v): try container.encode(v)
+        case .double(let v): try container.encode(v)
+        case .bool(let v): try container.encode(v)
+        case .null: try container.encodeNil()
+        }
+    }
+
+    /// 显示用字符串
+    var displayString: String {
+        switch self {
+        case .string(let v): return v
+        case .int(let v): return "\(v)"
+        case .double(let v):
+            // 整数形式的浮点数去掉小数点
+            if v.truncatingRemainder(dividingBy: 1) == 0 {
+                return "\(Int(v))"
+            }
+            return String(format: "%.4g", v)
+        case .bool(let v): return v ? "是" : "否"
+        case .null: return "空"
+        }
+    }
+
+    /// 控件类型推断
+    var widgetKind: WidgetKind {
+        switch self {
+        case .string: return .text
+        case .int: return .number
+        case .double: return .number
+        case .bool: return .toggle
+        case .null: return .text
+        }
+    }
+
+    init(raw: RawWidgetValue) {
+        switch raw {
+        case .string(let v): self = .string(v)
+        case .int(let v): self = .int(v)
+        case .double(let v): self = .double(v)
+        case .bool(let v): self = .bool(v)
+        case .null: self = .null
+        }
+    }
+}
+
+/// 控件类型
+enum WidgetKind {
+    case text
+    case number
+    case toggle
+}
+
+/// 用于解码 widgets_values 中混合类型的元素
+enum RawWidgetValue: Codable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let boolVal = try? container.decode(Bool.self) {
+            self = .bool(boolVal)
+        } else if let intVal = try? container.decode(Int.self) {
+            self = .int(intVal)
+        } else if let doubleVal = try? container.decode(Double.self) {
+            self = .double(doubleVal)
+        } else if let strVal = try? container.decode(String.self) {
+            self = .string(strVal)
+        } else if container.decodeNil() {
+            self = .null
+        } else {
+            self = .null
+        }
     }
 }
 
@@ -201,5 +442,87 @@ enum RawLinkValue: Codable {
         case .double(let v): return String(v)
         case .null: return nil
         }
+    }
+}
+
+// MARK: - 节点类型色彩体系
+
+/// 节点类型色彩字典
+enum NodeTypeColor {
+    /// 根据节点类型返回标题栏颜色
+    static func color(for type: String) -> Color {
+        let lower = type.lowercased()
+        // 加载器类 - 蓝色
+        if lower.contains("load") || lower.contains("loader") {
+            return Color(red: 0.20, green: 0.45, blue: 0.75)
+        }
+        // 采样器类 - 红色
+        if lower.contains("sampler") || lower.contains("sample") {
+            return Color(red: 0.75, green: 0.25, blue: 0.25)
+        }
+        // 条件/提示词类 - 黄色/橙色
+        if lower.contains("condition") || lower.contains("prompt") || lower.contains("encode") {
+            return Color(red: 0.80, green: 0.55, blue: 0.10)
+        }
+        // 潜空间类 - 粉色
+        if lower.contains("latent") || lower.contains("vae") {
+            return Color(red: 0.70, green: 0.30, blue: 0.60)
+        }
+        // 图像类 - 绿色
+        if lower.contains("image") || lower.contains("save") || lower.contains("preview") {
+            return Color(red: 0.25, green: 0.60, blue: 0.35)
+        }
+        // 模型类 - 紫色
+        if lower.contains("model") || lower.contains("dit") || lower.contains("unet") {
+            return Color(red: 0.50, green: 0.35, blue: 0.75)
+        }
+        // 文本/脚本类 - 青色
+        if lower.contains("text") || lower.contains("script") || lower.contains("plan") {
+            return Color(red: 0.0, green: 0.45, blue: 0.45)
+        }
+        // 默认 - 深灰
+        return Color(red: 0.35, green: 0.35, blue: 0.40)
+    }
+}
+
+/// 插槽/连线数据类型色彩
+enum SlotTypeColor {
+    static func color(for type: String?) -> Color {
+        guard let type = type else { return .gray }
+        switch type.uppercased() {
+        case "MODEL": return .orange
+        case "CLIP": return .green
+        case "VAE": return .purple
+        case "LATENT": return .pink
+        case "IMAGE": return .blue
+        case "CONDITIONING": return .yellow
+        case "MASK": return .gray
+        case "AUDIO": return .red
+        case "VIDEO": return .indigo
+        case "PLAN_JSON", "STRING": return .teal
+        case "INT", "FLOAT": return .brown
+        case "BOOLEAN": return .mint
+        default: return .gray
+        }
+    }
+}
+
+// MARK: - Color Hex 扩展
+
+extension Color {
+    /// 从十六进制字符串初始化颜色，支持 "#RRGGBB" 格式
+    init?(hex: String) {
+        var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        hexSanitized = hexSanitized.hasPrefix("#") ? String(hexSanitized.dropFirst()) : hexSanitized
+
+        guard hexSanitized.count == 6 else { return nil }
+
+        var rgb: UInt64 = 0
+        guard Scanner(string: hexSanitized).scanHexInt64(&rgb) else { return nil }
+
+        let red = Double((rgb & 0xFF0000) >> 16) / 255.0
+        let green = Double((rgb & 0x00FF00) >> 8) / 255.0
+        let blue = Double(rgb & 0x0000FF) / 255.0
+        self.init(red: red, green: green, blue: blue)
     }
 }
