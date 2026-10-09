@@ -3,8 +3,8 @@ import SwiftUI
 /// 工作流画布视图：使用 SwiftUI Canvas 高性能渲染分组、连线、节点与控件
 /// 支持双指缩放、单指拖拽、节点点击查看详情、重置视角
 struct WorkflowCanvasView: View {
-    /// 工作流数据
-    let workflow: WorkflowModel
+    /// 工作流数据（可编辑，支持弹窗修改参数后同步画布）
+    @State var workflow: WorkflowModel
     /// 当前平移偏移
     @State private var offset: CGPoint = .zero
     /// 当前缩放比例
@@ -13,76 +13,112 @@ struct WorkflowCanvasView: View {
     @State private var lastOffset: CGPoint = .zero
     /// 上一次手势结束时的缩放比例
     @State private var lastZoom: CGFloat = 1.0
-    /// 当前选中的节点
-    @State private var selectedNode: NodeModel?
+    /// 当前选中的节点ID
+    @State private var selectedNodeId: Int?
     /// 是否已经执行过初始适配
     @State private var hasFitted = false
+    /// 当前视图尺寸
+    @State private var viewSize: CGSize = .zero
+    /// 高亮节点ID（搜索定位时使用）
+    @State private var highlightedNodeId: Int?
 
     var body: some View {
         GeometryReader { geometry in
-            Canvas { context, size in
-                // 绘制背景网格（屏幕坐标系）
-                drawGrid(context: context, viewSize: size)
+            ZStack(alignment: .bottomTrailing) {
+                Canvas { context, size in
+                    // 记录视图尺寸
+                    if viewSize != size {
+                        DispatchQueue.main.async { viewSize = size }
+                    }
 
-                // 画布内部矩阵变换
-                context.translateBy(x: offset.x, y: offset.y)
-                context.scaleBy(x: zoom, y: zoom)
+                    // 绘制背景网格（屏幕坐标系）
+                    drawGrid(context: context, viewSize: size)
 
-                // 层级1：分组背景（最底层）
-                drawGroups(context: context)
+                    // 画布内部矩阵变换
+                    context.translateBy(x: offset.x, y: offset.y)
+                    context.scaleBy(x: zoom, y: zoom)
 
-                // 层级2：连线
-                drawLinks(context: context)
+                    // 层级1：分组背景（最底层）
+                    drawGroups(context: context)
 
-                // 层级3：节点
-                drawNodes(context: context)
-            }
-            .gesture(
-                SimultaneousGesture(
-                    DragGesture()
-                        .onChanged { value in
-                            offset = CGPoint(
-                                x: lastOffset.x + value.translation.width,
-                                y: lastOffset.y + value.translation.height
-                            )
-                        }
-                        .onEnded { _ in
-                            lastOffset = offset
-                        },
-                    MagnificationGesture()
-                        .onChanged { value in
-                            zoom = CanvasMath.clamp(
-                                lastZoom * value,
-                                min: CanvasMath.minZoom,
-                                max: CanvasMath.maxZoom
-                            )
-                        }
-                        .onEnded { _ in
-                            lastZoom = zoom
-                        }
-                )
-            )
-            .onTapGesture { location in
-                let worldX = (location.x - offset.x) / zoom
-                let worldY = (location.y - offset.y) / zoom
-                let worldPoint = CGPoint(x: worldX, y: worldY)
-                selectedNode = workflow.nodes.first { node in
-                    CGRect(origin: node.position, size: node.nodeSize).contains(worldPoint)
+                    // 层级2：连线
+                    drawLinks(context: context)
+
+                    // 层级3：节点
+                    drawNodes(context: context, highlightedId: highlightedNodeId)
                 }
-            }
-            .sheet(item: $selectedNode) { node in
-                NodeDetailSheet(node: node, workflow: workflow)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .resetCanvasView)) { _ in
-                fitToView(size: geometry.size)
-            }
-            .onAppear {
-                if !hasFitted {
-                    hasFitted = true
-                    DispatchQueue.main.async {
-                        fitToView(size: geometry.size)
+                .gesture(
+                    SimultaneousGesture(
+                        DragGesture()
+                            .onChanged { value in
+                                offset = CGPoint(
+                                    x: lastOffset.x + value.translation.width,
+                                    y: lastOffset.y + value.translation.height
+                                )
+                            }
+                            .onEnded { _ in
+                                lastOffset = offset
+                            },
+                        MagnificationGesture()
+                            .onChanged { value in
+                                zoom = CanvasMath.clamp(
+                                    lastZoom * value,
+                                    min: CanvasMath.minZoom,
+                                    max: CanvasMath.maxZoom
+                                )
+                            }
+                            .onEnded { _ in
+                                lastZoom = zoom
+                            }
+                    )
+                )
+                .onTapGesture { location in
+                    let worldX = (location.x - offset.x) / zoom
+                    let worldY = (location.y - offset.y) / zoom
+                    let worldPoint = CGPoint(x: worldX, y: worldY)
+                    selectedNodeId = workflow.nodes.first { node in
+                        CGRect(origin: node.position, size: node.nodeSize).contains(worldPoint)
+                    }?.id
+                }
+                .sheet(item: Binding(
+                    get: { selectedNodeId.map { NodeIDWrapper(id: $0) } },
+                    set: { selectedNodeId = $0?.id }
+                )) { wrapper in
+                    NodeDetailSheet(workflow: $workflow, nodeId: wrapper.id)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .resetCanvasView)) { _ in
+                    fitToView(size: geometry.size)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .focusNode)) { notification in
+                    if let nodeId = notification.object as? Int {
+                        focusOnNode(nodeId: nodeId, viewSize: geometry.size)
                     }
                 }
+                .onAppear {
+                    if !hasFitted {
+                        hasFitted = true
+                        DispatchQueue.main.async {
+                            fitToView(size: geometry.size)
+                        }
+                    }
+                }
+
+                // 小地图（右下角悬浮）
+                MiniMapView(
+                    workflow: workflow,
+                    offset: offset,
+                    zoom: zoom,
+                    viewSize: geometry.size,
+                    onTap: { worldPoint in
+                        // 点击小地图跳转：使点击点居中
+                        offset = CGPoint(
+                            x: geometry.size.width / 2 - worldPoint.x * zoom,
+                            y: geometry.size.height / 2 - worldPoint.y * zoom
+                        )
+                        lastOffset = offset
+                    }
+                )
+                .padding(12)
             }
         }
         .background(Color(.systemBackground))
@@ -90,26 +126,38 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 分组绘制
 
-    /// 绘制分组背景框与标题（最底层）
+    /// 绘制分组背景框与标题（最底层，ComfyUI风格）
     private func drawGroups(context: GraphicsContext) {
         for group in workflow.groups {
             let rect = group.frame
             guard rect.width > 0, rect.height > 0 else { continue }
 
             let shape = RoundedRectangle(cornerRadius: 12)
+            // 分组半透明背景
             context.fill(shape.path(in: rect), with: .color(group.groupColor))
-            context.stroke(shape.path(in: rect), with: .color(group.borderColor), lineWidth: 1.5)
+            // 分组边框
+            context.stroke(shape.path(in: rect), with: .color(group.borderColor), lineWidth: 2)
 
+            // 分组标题背景条（顶部矩形）
+            let titleBgRect = CGRect(
+                x: rect.minX,
+                y: rect.minY,
+                width: rect.width,
+                height: 28
+            )
+            context.fill(Path(titleBgRect), with: .color(group.borderColor.opacity(0.25)))
+
+            // 分组标题文字
             let titleText = Text(group.title)
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(group.borderColor)
-            let titleRect = CGRect(
-                x: rect.minX + 12,
-                y: rect.minY + 8,
-                width: rect.width - 24,
+            let titleTextRect = CGRect(
+                x: rect.minX + 14,
+                y: rect.minY + 4,
+                width: rect.width - 28,
                 height: 20
             )
-            context.draw(titleText, in: titleRect)
+            context.draw(titleText, in: titleTextRect)
         }
     }
 
@@ -141,15 +189,15 @@ struct WorkflowCanvasView: View {
         }
     }
 
-    /// 生成两点间的三次贝塞尔曲线路径（ComfyUI风格，控制点动态计算）
+    /// 生成两点间的三次贝塞尔曲线路径（动态控制点，近距离收缩避免飞线）
     private func bezierLinkPath(from: CGPoint, to: CGPoint) -> Path {
         Path { path in
             path.move(to: from)
             let dx = to.x - from.x
-            // 动态计算控制点偏移：基础为X距离的50%，上限120，下限40
-            let baseOffset = min(max(abs(dx) * 0.5, 40), 120)
-            // 反向连线（目标在左侧）时增加偏移避免线条重叠
-            let offset = dx < 0 ? baseOffset * 1.3 : baseOffset
+            let dy = to.y - from.y
+            // 基于两点实际距离动态计算控制点偏移，近距离收缩，远距离上限100
+            let dist = sqrt(dx * dx + dy * dy)
+            let offset = min(max(dist * 0.3, 15), 100)
             path.addCurve(
                 to: to,
                 control1: CGPoint(x: from.x + offset, y: from.y),
@@ -161,10 +209,15 @@ struct WorkflowCanvasView: View {
     // MARK: - 节点绘制
 
     /// 绘制所有节点
-    private func drawNodes(context: GraphicsContext) {
+    private func drawNodes(context: GraphicsContext, highlightedId: Int? = nil) {
         for node in workflow.nodes {
             let rect = CGRect(origin: node.position, size: node.nodeSize)
             let shape = RoundedRectangle(cornerRadius: 8)
+
+            // 高亮节点发光效果
+            if highlightedId == node.id {
+                context.fill(shape.path(in: rect.insetBy(dx: -6, dy: -6)), with: .color(.yellow.opacity(0.4)))
+            }
 
             context.fill(shape.path(in: rect), with: .color(node.bodyColor))
             context.stroke(shape.path(in: rect), with: .color(node.headerColor), lineWidth: 2)
@@ -410,6 +463,23 @@ struct WorkflowCanvasView: View {
         )
         lastOffset = offset
     }
+
+    /// 居中聚焦到指定节点并高亮
+    private func focusOnNode(nodeId: Int, viewSize: CGSize) {
+        guard let node = workflow.nodeMap[nodeId] else { return }
+        let center = CGPoint(x: node.position.x + node.nodeSize.width / 2,
+                             y: node.position.y + node.nodeSize.height / 2)
+        offset = CGPoint(
+            x: viewSize.width / 2 - center.x * zoom,
+            y: viewSize.height / 2 - center.y * zoom
+        )
+        lastOffset = offset
+        highlightedNodeId = nodeId
+        // 3秒后取消高亮
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            if highlightedNodeId == nodeId { highlightedNodeId = nil }
+        }
+    }
 }
 
 // MARK: - 数组安全下标
@@ -418,4 +488,9 @@ extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
+}
+
+/// 节点ID包装器，用于sheet(item:)
+private struct NodeIDWrapper: Identifiable {
+    let id: Int
 }

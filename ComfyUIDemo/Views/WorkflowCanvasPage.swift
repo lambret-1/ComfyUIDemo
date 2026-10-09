@@ -8,6 +8,8 @@ struct WorkflowCanvasPage: View {
     let onDismiss: () -> Void
     /// 环境关闭
     @Environment(\.dismiss) private var dismiss
+    /// 是否显示搜索页面
+    @State private var showSearch: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -27,19 +29,32 @@ struct WorkflowCanvasPage: View {
                         }
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            // 通过通知触发重置，或使用偏好注入
-                            NotificationCenter.default.post(name: .resetCanvasView, object: nil)
-                        } label: {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        HStack(spacing: 12) {
+                            Button {
+                                showSearch = true
+                            } label: {
+                                Image(systemName: "magnifyingglass")
+                            }
+                            Button {
+                                NotificationCenter.default.post(name: .resetCanvasView, object: nil)
+                            } label: {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            }
                         }
+                    }
+                }
+                .fullScreenCover(isPresented: $showSearch) {
+                    NodeSearchPage(workflow: workflow) { nodeId in
+                        showSearch = false
+                        NotificationCenter.default.post(name: .focusNode, object: nodeId)
                     }
                 }
         }
     }
 }
 
-/// 画布重置通知名
+/// 画布通知名
 extension Notification.Name {
     static let resetCanvasView = Notification.Name("resetCanvasView")
+    static let focusNode = Notification.Name("focusNode")
 }
