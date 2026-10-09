@@ -242,12 +242,15 @@ struct WorkflowCanvasView: View {
                 .foregroundColor(.white)
             context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
 
-            // 控件区域（居中，避开左右两侧插槽标签，左右各预留75pt）
+            // 控件区域（居中，避开左右两侧插槽标签区域）
+            // 左侧输入插槽标签最大宽度100pt + 圆点5pt + 间距 = 115pt
+            // 右侧输出插槽标签最大宽度120pt + 圆点5pt + 间距 = 135pt
             let widgetTop = headerRect.maxY + 6
             let widgetBottom = rect.maxY - 20
-            let sideInset: CGFloat = 95
-            let widgetX = rect.minX + sideInset
-            let widgetWidth = max(40, rect.width - sideInset * 2)
+            let leftInset: CGFloat = 115
+            let rightInset: CGFloat = 135
+            let widgetX = rect.minX + leftInset
+            let widgetWidth = max(40, rect.width - leftInset - rightInset)
             if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
                 drawWidgets(
                     context: context,
@@ -401,7 +404,7 @@ struct WorkflowCanvasView: View {
         let dotSize: CGFloat = 10
         let labelFont = UIFont.systemFont(ofSize: 10)
 
-        // 输出插槽（节点右侧）：标签在圆点右侧，左对齐，最大宽度120pt
+        // 输出插槽（节点右侧）：圆点在右边缘，标签在圆点左侧（节点内部右侧），右对齐，最大宽度120pt
         if let outputs = node.outputs {
             for (index, slot) in outputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: true)
@@ -422,13 +425,14 @@ struct WorkflowCanvasView: View {
                     let nameText = Text(displayName)
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
-                    let labelPoint = CGPoint(x: point.x + dotSize / 2 + 5, y: point.y)
-                    context.draw(nameText, at: labelPoint, anchor: .leading)
+                    // 标签在圆点左侧（节点内部），右对齐
+                    let labelPoint = CGPoint(x: point.x - dotSize / 2 - 5, y: point.y)
+                    context.draw(nameText, at: labelPoint, anchor: .trailing)
                 }
             }
         }
 
-        // 输入插槽（节点左侧）：标签在圆点左侧，右对齐，最大宽度100pt
+        // 输入插槽（节点左侧）：圆点在左边缘，标签在圆点右侧（节点内部左侧），左对齐，最大宽度100pt
         if let inputs = node.inputs {
             for (index, slot) in inputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
@@ -449,8 +453,9 @@ struct WorkflowCanvasView: View {
                     let nameText = Text(displayName)
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
-                    let labelPoint = CGPoint(x: point.x - dotSize / 2 - 5, y: point.y)
-                    context.draw(nameText, at: labelPoint, anchor: .trailing)
+                    // 标签在圆点右侧（节点内部），左对齐
+                    let labelPoint = CGPoint(x: point.x + dotSize / 2 + 5, y: point.y)
+                    context.draw(nameText, at: labelPoint, anchor: .leading)
                 }
             }
         }
