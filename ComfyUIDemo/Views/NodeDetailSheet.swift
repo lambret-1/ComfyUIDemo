@@ -65,19 +65,20 @@ struct NodeDetailSheet: View {
             Section("控件参数 (\(node.widgetsValues?.count ?? 0))") {
                 if let widgets = node.widgetsValues, !widgets.isEmpty {
                     ForEach(Array(widgets.enumerated()), id: \.offset) { index, widget in
+                        let paramName = index < node.widgetNames.count ? node.widgetNames[index] : "参数\(index + 1)"
                         HStack {
-                            Text("[\(index)]")
-                                .foregroundColor(.secondary)
-                                .font(.caption)
-                                .frame(width: 36)
                             VStack(alignment: .leading, spacing: 2) {
+                                Text(paramName)
+                                    .font(.subheadline)
+                                    .foregroundColor(.primary)
                                 Text(widget.displayString)
                                     .font(.body)
-                                Text(widgetKindLabel(widget.widgetKind))
-                                    .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
+                            Text(widgetKindLabel(widget.widgetKind))
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                         }
                     }
                 } else {

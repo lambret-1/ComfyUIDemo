@@ -141,21 +141,19 @@ struct WorkflowCanvasView: View {
         }
     }
 
-    /// 生成两点间的三次贝塞尔曲线路径（ComfyUI风格，反向连线加大弯曲）
+    /// 生成两点间的三次贝塞尔曲线路径（ComfyUI风格，控制点动态计算）
     private func bezierLinkPath(from: CGPoint, to: CGPoint) -> Path {
         Path { path in
             path.move(to: from)
             let dx = to.x - from.x
-            // 基础水平偏移
-            var controlOffset = max(abs(dx) * 0.5, 50)
-            // 反向连线（目标在左侧）时加大偏移，避免线条过度兜圈
-            if dx < 0 {
-                controlOffset = max(controlOffset, 100)
-            }
+            // 动态计算控制点偏移：基础为X距离的50%，上限120，下限40
+            let baseOffset = min(max(abs(dx) * 0.5, 40), 120)
+            // 反向连线（目标在左侧）时增加偏移避免线条重叠
+            let offset = dx < 0 ? baseOffset * 1.3 : baseOffset
             path.addCurve(
                 to: to,
-                control1: CGPoint(x: from.x + controlOffset, y: from.y),
-                control2: CGPoint(x: to.x - controlOffset, y: to.y)
+                control1: CGPoint(x: from.x + offset, y: from.y),
+                control2: CGPoint(x: to.x - offset, y: to.y)
             )
         }
     }
@@ -195,6 +193,7 @@ struct WorkflowCanvasView: View {
                 drawWidgets(
                     context: context,
                     widgets: widgets,
+                    names: node.widgetNames,
                     in: CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
                 )
             }
@@ -218,71 +217,74 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 控件绘制
 
-    /// 绘制节点内部控件（只读展示，带序号标签）
-    private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], in rect: CGRect) {
-        let rowHeight: CGFloat = 20
+    /// 绘制节点内部控件（只读展示，带真实参数名标签）
+    private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], names: [String], in rect: CGRect) {
+        let labelHeight: CGFloat = 10
+        let controlHeight: CGFloat = 16
+        let rowSpacing: CGFloat = 4
+        let rowHeight = labelHeight + controlHeight + rowSpacing
         var currentY = rect.minY
 
         for (index, widget) in widgets.enumerated() {
             guard currentY + rowHeight <= rect.maxY else {
                 if currentY < rect.maxY {
-                    let moreText = Text("… 更多参数")
+                    let remaining = widgets.count - index
+                    let moreText = Text("… +\(remaining) 更多参数")
                         .font(.system(size: 9))
                         .foregroundColor(.secondary)
-                    context.draw(moreText, in: CGRect(x: rect.minX, y: currentY, width: rect.width, height: rowHeight))
+                    context.draw(moreText, in: CGRect(x: rect.minX, y: currentY, width: rect.width, height: 14))
                 }
                 break
             }
 
-            // 序号标签
-            let indexText = Text("\(index + 1)")
+            // 参数名标签（上方，小号灰色）
+            let paramName = index < names.count ? names[index] : "参数\(index + 1)"
+            let labelText = Text(paramName)
                 .font(.system(size: 8))
                 .foregroundColor(.secondary)
-            context.draw(indexText, at: CGPoint(x: rect.minX, y: currentY + rowHeight / 2), anchor: .leading)
+            context.draw(labelText, in: CGRect(x: rect.minX, y: currentY, width: rect.width, height: labelHeight))
 
-            let controlX = rect.minX + 16
-            let controlWidth = rect.width - 16
+            let controlY = currentY + labelHeight + 1
 
             switch widget.widgetKind {
             case .toggle:
                 let isOn = widget.boolValue
-                let toggleRect = CGRect(x: controlX, y: currentY + 3, width: 30, height: 14)
+                let toggleRect = CGRect(x: rect.minX, y: controlY, width: 28, height: 14)
                 let toggleShape = RoundedRectangle(cornerRadius: 7)
                 context.fill(toggleShape.path(in: toggleRect), with: .color(isOn ? .green : .gray.opacity(0.4)))
-                let knobX = isOn ? toggleRect.maxX - 12 : toggleRect.minX + 2
-                let knobRect = CGRect(x: knobX, y: toggleRect.minY + 1, width: 12, height: 12)
+                let knobX = isOn ? toggleRect.maxX - 11 : toggleRect.minX + 2
+                let knobRect = CGRect(x: knobX, y: toggleRect.minY + 1, width: 11, height: 12)
                 context.fill(Path(ellipseIn: knobRect), with: .color(.white))
-                // 开关状态文字
                 let statusText = Text(isOn ? "开" : "关")
-                    .font(.system(size: 9))
+                    .font(.system(size: 8))
                     .foregroundColor(.secondary)
-                context.draw(statusText, at: CGPoint(x: toggleRect.maxX + 6, y: currentY + rowHeight / 2), anchor: .leading)
+                context.draw(statusText, at: CGPoint(x: toggleRect.maxX + 4, y: controlY + 7), anchor: .leading)
 
             case .number:
-                let numRect = CGRect(x: controlX, y: currentY + 2, width: min(controlWidth, 70), height: 16)
+                let numRect = CGRect(x: rect.minX, y: controlY, width: min(rect.width, 64), height: controlHeight)
                 let numShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(numShape.path(in: numRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(numShape.path(in: numRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
                 let numText = Text(widget.displayString)
-                    .font(.system(size: 10))
+                    .font(.system(size: 9))
                     .foregroundColor(.primary)
                 context.draw(numText, in: numRect.insetBy(dx: 4, dy: 1))
 
             case .text:
                 let text = widget.displayString
-                let maxChars = max(8, Int(controlWidth / 6))
+                let maxChars = max(6, Int(rect.width / 5.5))
                 let displayText = text.count > maxChars ? String(text.prefix(maxChars)) + "…" : text
-                let textRect = CGRect(x: controlX, y: currentY + 2, width: min(controlWidth, CGFloat(maxChars) * 6 + 8), height: 16)
+                let textRect = CGRect(x: rect.minX, y: controlY, width: min(rect.width, CGFloat(maxChars) * 5.5 + 8), height: controlHeight)
                 let textShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(textShape.path(in: textRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(textShape.path(in: textRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
                 let textView = Text(displayText)
-                    .font(.system(size: 9))
+                    .font(.system(size: 8))
                     .foregroundColor(.primary)
                 context.draw(textView, in: textRect.insetBy(dx: 4, dy: 1))
             }
 
-            currentY += rowHeight + 2
+            currentY += rowHeight
         }
     }
 

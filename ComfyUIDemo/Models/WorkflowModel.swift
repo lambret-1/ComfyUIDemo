@@ -113,6 +113,22 @@ struct NodeModel: Codable, Identifiable, Hashable {
         title?.isEmpty == false ? title! : type
     }
 
+    /// 控件参数名列表（优先从inputs的widget字段提取，其次用内置映射表，最后用序号）
+    var widgetNames: [String] {
+        // 1. 从 inputs 中提取有 widget 属性的 input 名称（按顺序）
+        let fromInputs = inputs?.compactMap { $0.widgetName } ?? []
+        if !fromInputs.isEmpty {
+            return fromInputs
+        }
+        // 2. 用内置常见节点参数名映射表
+        if let names = WidgetNameRegistry.names(for: type) {
+            return names
+        }
+        // 3. 兜底用序号
+        let count = widgetsValues?.count ?? 0
+        return (0..<count).map { "参数\($0 + 1)" }
+    }
+
     /// 节点主体背景色（优先自定义颜色，否则按类型匹配）
     var bodyColor: Color {
         if let hex = colorHex, let color = Color(hex: hex) {
@@ -202,9 +218,11 @@ struct SlotModel: Codable, Hashable {
     let slotIndex: Int?
     /// 关联的连线编号列表
     let links: [Int]?
+    /// 关联的控件信息（input中如有widget字段，则该input对应一个widget）
+    let widgetName: String?
 
     enum CodingKeys: String, CodingKey {
-        case name, type, links
+        case name, type, links, widget
         case slotIndex = "slot_index"
     }
 
@@ -214,6 +232,14 @@ struct SlotModel: Codable, Hashable {
         type = try? container.decodeIfPresent(String.self, forKey: .type)
         slotIndex = try? container.decodeIfPresent(Int.self, forKey: .slotIndex)
         links = try? container.decodeIfPresent([Int].self, forKey: .links)
+        // 解析 widget 字段（可能是对象 {"name":"..."} 或字符串）
+        if let widgetObj = try? container.decodeIfPresent(WidgetInfo.self, forKey: .widget) {
+            widgetName = widgetObj.name
+        } else if let widgetStr = try? container.decodeIfPresent(String.self, forKey: .widget) {
+            widgetName = widgetStr
+        } else {
+            widgetName = nil
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -223,6 +249,11 @@ struct SlotModel: Codable, Hashable {
         try container.encodeIfPresent(slotIndex, forKey: .slotIndex)
         try container.encodeIfPresent(links, forKey: .links)
     }
+}
+
+/// 控件信息（ComfyUI input中的widget字段）
+private struct WidgetInfo: Codable {
+    let name: String?
 }
 
 // MARK: - 连线模型
@@ -569,6 +600,68 @@ enum SlotTypeColor {
         case "BOOLEAN": return .mint
         default: return .gray
         }
+    }
+}
+
+// MARK: - 控件参数名注册表
+
+/// 常见节点类型的控件参数名映射表（当JSON中未提供widget信息时使用）
+enum WidgetNameRegistry {
+    /// 根据节点类型返回参数名列表
+    static func names(for nodeType: String) -> [String]? {
+        let lower = nodeType.lowercased()
+        // 采样器类
+        if lower.contains("ksampler") || (lower.contains("sampler") && lower.contains("ref2va")) {
+            return ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise", "width", "height", "batch_size"]
+        }
+        if lower.contains("sampler") {
+            return ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"]
+        }
+        // 加载器类
+        if lower.contains("checkpoint") {
+            return ["ckpt_name"]
+        }
+        if lower.contains("vae") && lower.contains("load") {
+            return ["vae_name"]
+        }
+        if lower.contains("clip") && lower.contains("load") {
+            return ["clip_name"]
+        }
+        if lower.contains("image") && lower.contains("load") {
+            return ["image"]
+        }
+        // 文本编码类
+        if lower.contains("cliptextencode") || lower.contains("textencode") {
+            return ["text"]
+        }
+        // 潜空间类
+        if lower.contains("emptylatent") {
+            return ["width", "height", "batch_size"]
+        }
+        // 保存类
+        if lower.contains("saveimage") {
+            return ["filename_prefix"]
+        }
+        // 上下文循环类
+        if lower.contains("contextloop") || lower.contains("context_loop") {
+            return ["steps", "cfg", "denoise", "loop_count"]
+        }
+        // 视频/音频加载器
+        if lower.contains("videoloader") || lower.contains("video_loader") {
+            return ["video", "frame_start", "frame_count"]
+        }
+        if lower.contains("audioloader") || lower.contains("audio_loader") {
+            return ["audio"]
+        }
+        // 脚本规划类
+        if lower.contains("scriptplanner") || lower.contains("script_planner") {
+            return ["prompt", "max_segments", "duration"]
+        }
+        // 条件构建类
+        if lower.contains("conditioning") && lower.contains("ref2va") {
+            return ["ref2va", "strength", "threshold"]
+        }
+        return nil
     }
 }
 
