@@ -89,8 +89,8 @@ struct NodeModel: Codable, Identifiable, Hashable {
     let outputs: [SlotModel]?
     /// 节点标题
     let title: String?
-    /// 控件值列表（多态：字符串/数字/布尔）
-    let widgetsValues: [WidgetValue]?
+    /// 控件值列表（多态：字符串/数字/布尔，可编辑）
+    var widgetsValues: [WidgetValue]?
     /// 节点自定义颜色（ComfyUI 中为 "#RRGGBB" 格式）
     let colorHex: String?
     /// 节点标题栏自定义颜色
