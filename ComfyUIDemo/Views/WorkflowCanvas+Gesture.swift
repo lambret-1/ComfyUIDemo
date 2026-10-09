@@ -17,6 +17,8 @@ extension WorkflowCanvasView {
         // 移动超过 3pt 就算真拖动
         if abs(value.translation.width) > 3 || abs(value.translation.height) > 3 {
             gestureDidMove = true
+            // 进入交互降级渲染模式
+            isInteracting = true
         }
 
         let rawStartX = value.location.x - value.translation.width
@@ -36,13 +38,12 @@ extension WorkflowCanvasView {
             return
         }
 
-        // 正在拖动节点时，更新节点位置
+        // 正在拖动节点时：仅更新 draggingOffset 轻量状态，不直接修改 workflow
         if let nodeId = draggingNodeId,
-           let startPos = dragStartNodePos,
            let startTouch = dragStartTouchPos {
             let deltaX = currentPoint.x - startTouch.x
             let deltaY = currentPoint.y - startTouch.y
-            moveNode(id: nodeId, to: CGPoint(x: startPos.x + deltaX, y: startPos.y + deltaY))
+            draggingOffset = CGSize(width: deltaX, height: deltaY)
             return
         }
 
@@ -82,6 +83,7 @@ extension WorkflowCanvasView {
                 draggingNodeId = node.id
                 dragStartNodePos = node.position
                 dragStartTouchPos = startPoint
+                draggingOffset = .zero
             } else if hitTestSlider(point: startPoint) != nil,
                       abs(value.translation.width) > abs(value.translation.height) {
                 // 起点在滑块区域 且 水平拖动为主 → 滑块调值模式
@@ -113,6 +115,9 @@ extension WorkflowCanvasView {
 
     /// 拖动手势结束：收尾连线/节点拖动/画布平移；若未移动则视为点击
     func handleDragEnded(_ value: DragGesture.Value) {
+        // 退出交互降级渲染
+        isInteracting = false
+
         if isConnecting {
             let currentWorldX = (value.location.x - offset.x) / zoom
             let currentWorldY = (value.location.y - offset.y) / zoom
@@ -126,10 +131,15 @@ extension WorkflowCanvasView {
             connectingFromPoint = nil
             connectingTo = nil
             snappedInputSlot = nil
-        } else if draggingNodeId != nil {
+        } else if let nodeId = draggingNodeId, let startPos = dragStartNodePos {
+            // 拖动结束：将 draggingOffset 提交到节点实际位置
+            let finalPos = CGPoint(x: startPos.x + draggingOffset.width,
+                                   y: startPos.y + draggingOffset.height)
+            moveNode(id: nodeId, to: finalPos)
             draggingNodeId = nil
             dragStartNodePos = nil
             dragStartTouchPos = nil
+            draggingOffset = .zero
         } else {
             lastOffset = offset
         }

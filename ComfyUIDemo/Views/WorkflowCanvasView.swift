@@ -43,6 +43,15 @@ struct WorkflowCanvasView: View {
     @State var dragStartNodePos: CGPoint?
     /// 拖动开始时手指的位置（世界坐标）
     @State var dragStartTouchPos: CGPoint?
+    /// 拖动偏移量（拖动过程中仅更新此轻量状态，不修改 workflow）
+    @State var draggingOffset: CGSize = .zero
+
+    // MARK: - 性能优化状态
+
+    /// 是否正在交互（拖动/平移中）：交互时降级渲染，跳过非必要文字
+    @State private var isInteracting: Bool = false
+    /// 节点渲染数据缓存：预计算尺寸、插槽位置、截断文本，避免每帧重复计算
+    @State private var renderCache: [Int: NodeRenderData] = [:]
 
     // MARK: - 手势区分状态（点击 vs 拖动）
     /// 本次手势是否真正移动过（用于区分点击与拖动）
@@ -68,14 +77,16 @@ struct WorkflowCanvasView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottomTrailing) {
+                // 背景网格层（静态独立视图，不随节点拖动重绘）
+                Canvas { context, size in
+                    drawGrid(context: context, viewSize: size)
+                }
+                // 主画布层（分组+连线+节点+控件，动态内容）
                 Canvas { context, size in
                     // 记录视图尺寸
                     if viewSize != size {
                         DispatchQueue.main.async { viewSize = size }
                     }
-
-                    // 绘制背景网格（屏幕坐标系）
-                    drawGrid(context: context, viewSize: size)
 
                     // 画布内部矩阵变换
                     context.translateBy(x: offset.x, y: offset.y)
@@ -92,7 +103,9 @@ struct WorkflowCanvasView: View {
                         var actualToPoint = toPoint
                         if let snapped = snappedInputSlot,
                            let snappedNode = workflow.nodeMap[snapped.nodeId] {
-                            actualToPoint = getSlotPosition(node: snappedNode, slotIndex: snapped.slotIndex, isOutput: false)
+                            actualToPoint = cachedSlotPosition(node: snappedNode,
+                                                               slotIndex: snapped.slotIndex,
+                                                               isOutput: false, context: context)
                             var highlightCircle = Path()
                             highlightCircle.addEllipse(in: CGRect(x: actualToPoint.x - 10, y: actualToPoint.y - 10, width: 20, height: 20))
                             context.fill(highlightCircle, with: .color(.green.opacity(0.5)))
@@ -172,9 +185,14 @@ struct WorkflowCanvasView: View {
                     if !hasFitted {
                         hasFitted = true
                         DispatchQueue.main.async {
+                            rebuildRenderCache()
                             fitToView(size: geometry.size)
                         }
                     }
+                }
+                // workflow 结构变化时重建渲染缓存
+                .onChange(of: workflow) { _ in
+                    rebuildRenderCache()
                 }
 
                 // 小地图（右下角悬浮）

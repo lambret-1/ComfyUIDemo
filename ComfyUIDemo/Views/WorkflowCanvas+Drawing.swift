@@ -8,6 +8,7 @@ extension WorkflowCanvasView {
 
     /// 绘制分组背景框与标题（最底层，ComfyUI风格）
     func drawGroups(context: GraphicsContext) {
+        let titleFont = UIFont.systemFont(ofSize: 14, weight: .bold)
         for group in workflow.groups {
             let rect = group.frame
             guard rect.width > 0, rect.height > 0 else { continue }
@@ -24,16 +25,16 @@ extension WorkflowCanvasView {
             )
             context.fill(Path(titleBgRect), with: .color(group.borderColor.opacity(0.25)))
 
-            let titleText = Text(group.title)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(group.borderColor)
+            // 高性能：直接用 NSAttributedString 绘制分组标题
             let titleTextRect = CGRect(
                 x: rect.minX + 14,
                 y: rect.minY + 4,
                 width: rect.width - 28,
                 height: 20
             )
-            context.draw(titleText, in: titleTextRect)
+            drawText(group.title, in: titleTextRect,
+                     font: titleFont, color: UIColor(group.borderColor),
+                     context: context)
         }
     }
 
@@ -47,21 +48,38 @@ extension WorkflowCanvasView {
                 continue
             }
 
-            let sourcePoint = getSlotPosition(
-                node: sourceNode,
-                slotIndex: link.sourceSlot,
-                isOutput: true
-            )
-            let targetPoint = getSlotPosition(
-                node: targetNode,
-                slotIndex: link.targetSlot,
-                isOutput: false
-            )
+            // 使用渲染缓存计算插槽位置（含拖动偏移）
+            let sourcePoint = cachedSlotPosition(
+                node: sourceNode, slotIndex: link.sourceSlot, isOutput: true, context: context)
+            let targetPoint = cachedSlotPosition(
+                node: targetNode, slotIndex: link.targetSlot, isOutput: false, context: context)
 
             let path = bezierLinkPath(from: sourcePoint, to: targetPoint)
             let sourceSlotType = sourceNode.outputs?[safe: link.sourceSlot]?.type
             let linkColor = SlotTypeColor.color(for: sourceSlotType ?? link.linkType)
             context.stroke(path, with: .color(linkColor), lineWidth: 2.5)
+        }
+    }
+
+    /// 使用缓存的插槽位置（含拖动偏移）
+    func cachedSlotPosition(node: NodeModel, slotIndex: Int, isOutput: Bool, context: GraphicsContext) -> CGPoint {
+        let effectivePos = effectivePosition(for: node)
+        guard let render = renderCache[node.id] else {
+            // 缓存未命中时降级到原计算方法
+            return getSlotPosition(node: node, slotIndex: slotIndex, isOutput: isOutput)
+        }
+        if isOutput {
+            guard slotIndex < render.outputSlotYOffsets.count else {
+                return CGPoint(x: effectivePos.x + render.nodeSize.width, y: effectivePos.y)
+            }
+            return CGPoint(x: effectivePos.x + render.nodeSize.width,
+                           y: effectivePos.y + render.outputSlotYOffsets[slotIndex])
+        } else {
+            guard slotIndex < render.inputSlotYOffsets.count else {
+                return CGPoint(x: effectivePos.x, y: effectivePos.y)
+            }
+            return CGPoint(x: effectivePos.x,
+                           y: effectivePos.y + render.inputSlotYOffsets[slotIndex])
         }
     }
 
@@ -83,8 +101,14 @@ extension WorkflowCanvasView {
 
     /// 绘制所有节点
     func drawNodes(context: GraphicsContext, highlightedId: Int? = nil) {
+        let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
+        let typeFont = UIFont.systemFont(ofSize: 8)
+
         for node in workflow.nodes {
-            let rect = CGRect(origin: node.position, size: node.nodeSize)
+            let effectivePos = effectivePosition(for: node)
+            let render = renderCache[node.id]
+            let nodeSize = render?.nodeSize ?? node.nodeSize
+            let rect = CGRect(origin: effectivePos, size: nodeSize)
             let shape = RoundedRectangle(cornerRadius: 8)
 
             if highlightedId == node.id {
@@ -98,7 +122,7 @@ extension WorkflowCanvasView {
             context.fill(shape.path(in: rect), with: .color(node.bodyColor))
             context.stroke(shape.path(in: rect), with: .color(node.headerColor), lineWidth: 2)
 
-            let headerHeight = min(30, rect.height * 0.4)
+            let headerHeight = render?.headerHeight ?? min(30, rect.height * 0.4)
             let headerRect = CGRect(
                 x: rect.minX,
                 y: rect.minY,
@@ -107,10 +131,10 @@ extension WorkflowCanvasView {
             )
             context.fill(shape.path(in: headerRect), with: .color(node.headerColor))
 
-            let titleText = Text(node.displayTitle)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white)
-            context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
+            // 节点标题（始终绘制，节点可识别）——高性能 NSAttributedString
+            let titleText = render?.displayTitle ?? node.displayTitle
+            drawText(titleText, in: headerRect.insetBy(dx: 8, dy: 6),
+                     font: titleFont, color: .white, context: context)
 
             // 右上角双圈圆点（详情页入口）——与 handleTap 的命中测试保持一致：18 + 6
             let infoButtonSize: CGFloat = 18
@@ -142,49 +166,57 @@ extension WorkflowCanvasView {
                 drawWidgets(
                     context: context,
                     widgets: widgets,
-                    names: node.widgetNames,
+                    render: render,
                     in: CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
                 )
             }
 
-            let typeLabelHeight: CGFloat = 16
-            let typeRect = CGRect(
-                x: rect.minX,
-                y: rect.maxY - typeLabelHeight,
-                width: rect.width,
-                height: typeLabelHeight
-            )
-            let typeText = Text(node.type)
-                .font(.system(size: 8))
-                .foregroundColor(.secondary)
-            context.draw(typeText, in: typeRect.insetBy(dx: 8, dy: 2))
+            // 节点类型标签：交互时跳过（降级渲染）
+            if !isInteracting {
+                let typeLabelHeight: CGFloat = 16
+                let typeRect = CGRect(
+                    x: rect.minX,
+                    y: rect.maxY - typeLabelHeight,
+                    width: rect.width,
+                    height: typeLabelHeight
+                )
+                let typeLabel = render?.typeLabel ?? node.type
+                drawText(typeLabel, in: typeRect.insetBy(dx: 8, dy: 2),
+                         font: typeFont, color: .secondaryLabel, context: context)
+            }
 
-            drawSlots(context: context, node: node)
+            // 插槽绘制（圆点始终绘制，名称交互时跳过）
+            drawSlots(context: context, node: node, render: render)
         }
     }
 
     // MARK: - 控件绘制
 
     /// 绘制节点内部控件
-    func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], names: [String], in rect: CGRect) {
+    func drawWidgets(context: GraphicsContext, widgets: [WidgetValue],
+                     render: NodeRenderData?, in rect: CGRect) {
         let controlHeight: CGFloat = 16
         let rowSpacing: CGFloat = 6
         let labelWidth: CGFloat = 48
-        let labelFont = UIFont.systemFont(ofSize: 8)
         let valueFont = UIFont.systemFont(ofSize: 8)
+        let numFont = UIFont.systemFont(ofSize: 9)
         var currentY = rect.minY
 
         for (index, widget) in widgets.enumerated() {
             let totalRowHeight = controlHeight + rowSpacing
 
-            let rawName = index < names.count ? names[index] : "参数\(index + 1)"
-            let paramName = SlotLocalization.localized(for: rawName)
-            let displayName = truncatedText(paramName, font: labelFont, maxWidth: labelWidth - 4)
-            let labelText = Text(displayName)
-                .font(.system(size: 8))
-                .foregroundColor(.secondary)
-            let labelCenterY = currentY + controlHeight / 2
-            context.draw(labelText, at: CGPoint(x: rect.minX + labelWidth - 2, y: labelCenterY), anchor: .trailing)
+            // 控件标签：交互时跳过（降级渲染）
+            if !isInteracting {
+                let labelCenterY = currentY + controlHeight / 2
+                let displayName = render?.widgetLabels[safe: index] ?? ""
+                if !displayName.isEmpty {
+                    drawTextAtPoint(displayName,
+                                    at: CGPoint(x: rect.minX + labelWidth - 2, y: labelCenterY),
+                                    font: UIFont.systemFont(ofSize: 8),
+                                    color: .secondaryLabel,
+                                    anchor: .trailing, context: context)
+                }
+            }
 
             let controlX = rect.minX + labelWidth + 4
             let controlWidth = rect.width - labelWidth - 4
@@ -199,10 +231,14 @@ extension WorkflowCanvasView {
                 let knobX = isOn ? toggleRect.maxX - 11 : toggleRect.minX + 2
                 let knobRect = CGRect(x: knobX, y: toggleRect.minY + 1, width: 11, height: 12)
                 context.fill(Path(ellipseIn: knobRect), with: .color(.white))
-                let statusText = Text(isOn ? "开" : "关")
-                    .font(.system(size: 8))
-                    .foregroundColor(.secondary)
-                context.draw(statusText, at: CGPoint(x: toggleRect.maxX + 4, y: controlY + 8), anchor: .leading)
+                // 开关状态文字：交互时跳过
+                if !isInteracting {
+                    drawTextAtPoint(isOn ? "开" : "关",
+                                    at: CGPoint(x: toggleRect.maxX + 4, y: controlY + 8),
+                                    font: UIFont.systemFont(ofSize: 8),
+                                    color: .secondaryLabel,
+                                    anchor: .leading, context: context)
+                }
 
             case .number:
                 let numWidth: CGFloat = 48
@@ -210,10 +246,9 @@ extension WorkflowCanvasView {
                 let numShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(numShape.path(in: numRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(numShape.path(in: numRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
-                let numText = Text(widget.displayString)
-                    .font(.system(size: 9))
-                    .foregroundColor(.primary)
-                context.draw(numText, in: numRect.insetBy(dx: 4, dy: 1))
+                // 数值文本
+                drawText(widget.displayString, in: numRect.insetBy(dx: 4, dy: 1),
+                         font: numFont, color: .label, context: context)
 
                 let sliderX = numRect.maxX + 6
                 let sliderWidth = max(0, controlWidth - numWidth - 6)
@@ -243,10 +278,8 @@ extension WorkflowCanvasView {
 
                 let textMaxWidth = isShortEnum ? controlWidth - 16 : controlWidth - 8
                 let displayText = truncatedText(text, font: valueFont, maxWidth: textMaxWidth)
-                let textView = Text(displayText)
-                    .font(.system(size: 8))
-                    .foregroundColor(.primary)
-                context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
+                drawText(displayText, in: textRect.insetBy(dx: 4, dy: 2),
+                         font: valueFont, color: .label, context: context)
 
                 if isShortEnum {
                     let arrowX = textRect.maxX - 12
@@ -265,14 +298,21 @@ extension WorkflowCanvasView {
 
     // MARK: - 插槽绘制与定位
 
-    /// 绘制节点的输入/输出插槽及名称标签
-    func drawSlots(context: GraphicsContext, node: NodeModel) {
+    /// 绘制节点的输入/输出插槽圆点及名称标签（交互时跳过名称）
+    func drawSlots(context: GraphicsContext, node: NodeModel, render: NodeRenderData?) {
         let dotSize: CGFloat = 10
-        let labelFont = UIFont.systemFont(ofSize: 9)
+        let effectivePos = effectivePosition(for: node)
+        let nodeSize = render?.nodeSize ?? node.nodeSize
 
         if let outputs = node.outputs {
             for (index, slot) in outputs.enumerated() {
-                let point = getSlotPosition(node: node, slotIndex: index, isOutput: true)
+                // 使用缓存的Y偏移计算插槽位置
+                let yOffset = render?.outputSlotYOffsets[safe: index] ?? {
+                    let headerHeight = render?.headerHeight ?? min(30, nodeSize.height * 0.4)
+                    return headerHeight + 8 + CGFloat(index) * 20
+                }()
+                let point = CGPoint(x: effectivePos.x + nodeSize.width, y: effectivePos.y + yOffset)
+
                 let dotRect = CGRect(
                     x: point.x - dotSize / 2,
                     y: point.y - dotSize / 2,
@@ -283,22 +323,31 @@ extension WorkflowCanvasView {
                 context.fill(Path(ellipseIn: dotRect), with: .color(slotColor))
                 context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
 
-                if let slotName = slot.name, !slotName.isEmpty {
-                    let localized = SlotLocalization.localized(for: slotName)
-                    let maxWidth: CGFloat = 70
-                    let displayName = truncatedText(localized, font: labelFont, maxWidth: maxWidth)
-                    let nameText = Text(displayName)
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                    let labelPoint = CGPoint(x: point.x - dotSize / 2 - 5, y: point.y)
-                    context.draw(nameText, at: labelPoint, anchor: .trailing)
+                // 插槽名称：交互时跳过
+                if !isInteracting, let slotName = slot.name, !slotName.isEmpty {
+                    let displayName = render?.outputSlotNames[safe: index] ?? {
+                        let localized = SlotLocalization.localized(for: slotName)
+                        return truncatedText(localized, font: UIFont.systemFont(ofSize: 9), maxWidth: 70)
+                    }()
+                    if !displayName.isEmpty {
+                        let labelPoint = CGPoint(x: point.x - dotSize / 2 - 5, y: point.y)
+                        drawTextAtPoint(displayName, at: labelPoint,
+                                        font: UIFont.systemFont(ofSize: 9),
+                                        color: .secondaryLabel,
+                                        anchor: .trailing, context: context)
+                    }
                 }
             }
         }
 
         if let inputs = node.inputs {
             for (index, slot) in inputs.enumerated() {
-                let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
+                let yOffset = render?.inputSlotYOffsets[safe: index] ?? {
+                    let headerHeight = render?.headerHeight ?? min(30, nodeSize.height * 0.4)
+                    return headerHeight + 8 + CGFloat(index) * 20
+                }()
+                let point = CGPoint(x: effectivePos.x, y: effectivePos.y + yOffset)
+
                 let dotRect = CGRect(
                     x: point.x - dotSize / 2,
                     y: point.y - dotSize / 2,
@@ -309,15 +358,19 @@ extension WorkflowCanvasView {
                 context.fill(Path(ellipseIn: dotRect), with: .color(slotColor))
                 context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
 
-                if let slotName = slot.name, !slotName.isEmpty {
-                    let localized = SlotLocalization.localized(for: slotName)
-                    let maxWidth: CGFloat = 60
-                    let displayName = truncatedText(localized, font: labelFont, maxWidth: maxWidth)
-                    let nameText = Text(displayName)
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                    let labelPoint = CGPoint(x: point.x + dotSize / 2 + 5, y: point.y)
-                    context.draw(nameText, at: labelPoint, anchor: .leading)
+                // 插槽名称：交互时跳过
+                if !isInteracting, let slotName = slot.name, !slotName.isEmpty {
+                    let displayName = render?.inputSlotNames[safe: index] ?? {
+                        let localized = SlotLocalization.localized(for: slotName)
+                        return truncatedText(localized, font: UIFont.systemFont(ofSize: 9), maxWidth: 60)
+                    }()
+                    if !displayName.isEmpty {
+                        let labelPoint = CGPoint(x: point.x + dotSize / 2 + 5, y: point.y)
+                        drawTextAtPoint(displayName, at: labelPoint,
+                                        font: UIFont.systemFont(ofSize: 9),
+                                        color: .secondaryLabel,
+                                        anchor: .leading, context: context)
+                    }
                 }
             }
         }
@@ -354,7 +407,7 @@ extension WorkflowCanvasView {
         return best > 0 ? String(searchText.prefix(best)) + "…" : "…"
     }
 
-    /// 计算插槽在画布中的坐标
+    /// 计算插槽在画布中的坐标（降级方案：缓存未命中时使用）
     func getSlotPosition(node: NodeModel, slotIndex: Int, isOutput: Bool) -> CGPoint {
         let rect = CGRect(origin: node.position, size: node.nodeSize)
         let headerHeight = min(30, rect.height * 0.4)

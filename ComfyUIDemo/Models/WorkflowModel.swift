@@ -4,7 +4,7 @@ import SwiftUI
 // MARK: - 工作流根模型
 
 /// 工作流根模型，对应 ComfyUI 导出的 workflow.json 顶层结构
-struct WorkflowModel: Codable {
+struct WorkflowModel: Codable, Equatable {
     /// 节点列表
     var nodes: [NodeModel]
     /// 连线列表（ComfyUI 原生为嵌套数组，已转换为结构化模型）
@@ -63,6 +63,30 @@ struct WorkflowModel: Codable {
         try container.encode(nodes, forKey: .nodes)
         try container.encode(links, forKey: .links)
         try container.encode(groups, forKey: .groups)
+    }
+
+    // MARK: - 精准 Equatable（性能优化）
+    /// 仅比较影响渲染的关键字段，避免 SwiftUI 全字段反射比较
+    static func == (lhs: WorkflowModel, rhs: WorkflowModel) -> Bool {
+        // 先比较数量，数量不同直接返回不等
+        guard lhs.nodes.count == rhs.nodes.count,
+              lhs.links.count == rhs.links.count,
+              lhs.groups.count == rhs.groups.count else {
+            return false
+        }
+        // 逐节点比较（利用 NodeModel 的精准 ==）
+        for i in 0..<lhs.nodes.count {
+            if lhs.nodes[i] != rhs.nodes[i] { return false }
+        }
+        // 连线比较
+        for i in 0..<lhs.links.count {
+            if lhs.links[i] != rhs.links[i] { return false }
+        }
+        // 分组比较
+        for i in 0..<lhs.groups.count {
+            if lhs.groups[i] != rhs.groups[i] { return false }
+        }
+        return true
     }
 }
 
@@ -244,8 +268,25 @@ struct NodeModel: Codable, Identifiable, Hashable {
         hasher.combine(id)
     }
 
+    // MARK: - 精准 Equatable（性能优化）
+    /// 比较所有影响画布渲染的字段，确保 SwiftUI diff 精准高效
     static func == (lhs: NodeModel, rhs: NodeModel) -> Bool {
-        lhs.id == rhs.id
+        guard lhs.id == rhs.id,
+              lhs.type == rhs.type,
+              lhs.pos == rhs.pos,
+              lhs.size == rhs.size,
+              lhs.title == rhs.title,
+              lhs.colorHex == rhs.colorHex,
+              lhs.titleColorHex == rhs.titleColorHex else {
+            return false
+        }
+        // 输入/输出插槽比较
+        guard lhs.inputs == rhs.inputs,
+              lhs.outputs == rhs.outputs else {
+            return false
+        }
+        // 控件值比较（影响节点高度和显示内容）
+        return lhs.widgetsValues == rhs.widgetsValues
     }
 }
 

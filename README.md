@@ -42,13 +42,19 @@ ComfyUIDemo/
 │   └── WorkflowModel.swift       # 工作流/节点/插槽/连线数据模型
 ├── Views/
 │   ├── WorkflowCanvasPage.swift  # 独立画布页面（导航栏 + 返回 + 重置）
-│   ├── WorkflowCanvasView.swift  # 画布视图（核心渲染 + 手势）
-│   ├── JsonImportView.swift      # JSON 导入/编辑页面
-│   └── NodeDetailSheet.swift     # 节点详情弹窗
+│   ├── WorkflowCanvasView.swift  # 画布视图（属性+body+手势入口）
+│   ├── WorkflowCanvas+Drawing.swift   # 绘制模块（分组/连线/节点/控件/插槽/网格）
+│   ├── WorkflowCanvas+Gesture.swift    # 手势处理（拖动/点击/模式锁定）
+│   ├── WorkflowCanvas+Viewport.swift   # 视角适配（fitToView/focusOnNode）
+│   ├── WorkflowCanvas+Interaction.swift # 交互命中测试（hitTest/连线/滑块）
+│   ├── WorkflowCanvas+Extensions.swift  # 扩展工具（文本绘制/渲染缓存/安全下标）
+│   ├── MiniMapView.swift          # 小地图视图
+│   ├── JsonImportView.swift       # JSON 导入/编辑页面
+│   └── NodeDetailSheet.swift      # 节点详情弹窗
 └── Utils/
-    ├── JsonParser.swift          # JSON 解析与校验
-    ├── CanvasMath.swift          # 画布数学（包围盒/缩放钳位）
-    └── ScreenAdapter.swift       # 屏幕适配工具
+    ├── JsonParser.swift           # JSON 解析与校验
+    ├── CanvasMath.swift           # 画布数学（包围盒/缩放钳位）
+    └── ScreenAdapter.swift        # 屏幕适配工具
 ```
 
 ## 本地构建
@@ -87,4 +93,5 @@ open ComfyUIDemo.xcodeproj
 
 ## 版本
 
+- v1.8.2：画布渲染性能系统性优化（NSAttributedString直接绘制、渲染数据缓存、拖动降级渲染、精准Equatable、画布分层）
 - v1.0.0：初始版本，支持 JSON 导入、画布渲染、节点详情、手势交互
