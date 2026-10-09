@@ -27,6 +27,7 @@ struct WorkflowCanvasView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottomTrailing) {
+                // L0-L2: Canvas层（背景网格 + 分组 + 连线）
                 Canvas { context, size in
                     // 记录视图尺寸
                     if viewSize != size {
@@ -45,26 +46,12 @@ struct WorkflowCanvasView: View {
 
                     // 层级2：连线
                     drawLinks(context: context)
-
-                    // 层级3：节点
-                    drawNodes(context: context, highlightedId: highlightedNodeId)
                 }
+                // 画布平移手势（节点拖动使用highPriorityGesture，会优先于此手势）
                 .gesture(
                     SimultaneousGesture(
                         DragGesture()
                             .onChanged { value in
-                                // 只有当节点被选中时，才允许滑块拖动编辑
-                                if selectedNodeIdForEdit != nil {
-                                    let startWorldPoint = viewModel.viewport.toWorld(value.startLocation)
-                                    if let slider = viewModel.hitTestSlider(worldPoint: startWorldPoint),
-                                       slider.nodeID == selectedNodeIdForEdit {
-                                        // 选中节点的滑块拖动 → 更新参数
-                                        let currentWorldX = viewModel.viewport.toWorld(value.location).x
-                                        viewModel.updateSliderValue(nodeID: slider.nodeID, index: slider.index, worldX: currentWorldX)
-                                        return
-                                    }
-                                }
-                                // 未选中节点或起点不在滑块区域 → 平移画布
                                 viewModel.applyPan(translation: value.translation)
                             }
                             .onEnded { _ in
@@ -79,49 +66,15 @@ struct WorkflowCanvasView: View {
                             }
                     )
                 )
-                .onTapGesture { location in
-                    let worldPoint = viewModel.viewport.toWorld(location)
-
-                    // 查找点击的节点
-                    let hitNode = viewModel.nodeAt(worldPoint)
-
-                    guard let node = hitNode else {
-                        // 点击画布空白区域 → 取消选中状态
-                        viewModel.selectNode(nil)
-                        return
-                    }
-
-                    let rect = CGRect(origin: node.position, size: node.nodeSize)
-                    let headerHeight = min(30, rect.height * 0.4)
-
-                    // 1. 右上角双圈圆点 → 弹出详情页（不受选中状态限制）
-                    let infoButtonSize: CGFloat = 24
-                    let infoButtonX = rect.maxX - infoButtonSize - 3
-                    let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
-                    let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
-                    if infoButtonRect.contains(worldPoint) {
-                        selectedNodeId = node.id
-                        return
-                    }
-
-                    // 2. 计算控件区域（与drawNodes一致的动态边距）
-                    let widgetRect = viewModel.widgetArea(for: node)
-
-                    let isInWidgetArea = widgetRect.contains(worldPoint)
-                    let hasWidgets = (node.widgetsValues?.count ?? 0) > 0
-
-                    if isInWidgetArea && hasWidgets {
-                        // 点击控件区域
-                        if selectedNodeIdForEdit != node.id {
-                            // 节点未选中 → 先选中节点（选中后overlay中的可交互控件会处理后续点击）
-                            viewModel.selectNode(node.id)
-                        }
-                        // 节点已选中 → 不做处理，让overlay中的TextField/Toggle/Slider直接响应
-                    } else {
-                        // 点击节点空白区域（header或控件区外）→ 选中节点
-                        viewModel.selectNode(node.id)
-                    }
+                // 点击画布空白区域 → 取消选中
+                .onTapGesture {
+                    viewModel.selectNode(nil)
                 }
+
+                // L3: 节点层（SwiftUI视图，支持自由拖动和参数直接编辑）
+                nodesLayer
+
+                // 详情页sheet
                 .sheet(item: Binding(
                     get: { selectedNodeId.map { NodeIDWrapper(id: $0) } },
                     set: { selectedNodeId = $0?.id }
@@ -144,24 +97,14 @@ struct WorkflowCanvasView: View {
                         }
                     }
                 }
-                // 选中节点的可交互控件层（直接在文本框内编辑，无需弹窗）
-                .overlay(alignment: .topLeading) {
-                    if let nodeId = selectedNodeIdForEdit, let node = workflow.nodeMap[nodeId] {
-                        editableControls(for: node)
-                            .scaleEffect(zoom, anchor: .topLeading)
-                            .offset(x: node.position.x * zoom + offset.x,
-                                    y: node.position.y * zoom + offset.y)
-                    }
-                }
 
-                // 小地图（右下角悬浮）
+                // L4: 小地图（右下角悬浮）
                 MiniMapView(
                     workflow: workflow,
                     offset: offset,
                     zoom: zoom,
                     viewSize: geometry.size,
                     onTap: { worldPoint in
-                        // 点击小地图跳转：使点击点居中
                         let newOffset = CGPoint(
                             x: geometry.size.width / 2 - worldPoint.x * zoom,
                             y: geometry.size.height / 2 - worldPoint.y * zoom
@@ -170,7 +113,6 @@ struct WorkflowCanvasView: View {
                         viewModel.viewport.lastOffset = newOffset
                     },
                     onDrag: { worldPoint in
-                        // 拖拽小地图实时平移
                         let newOffset = CGPoint(
                             x: geometry.size.width / 2 - worldPoint.x * zoom,
                             y: geometry.size.height / 2 - worldPoint.y * zoom
@@ -183,6 +125,33 @@ struct WorkflowCanvasView: View {
             }
         }
         .background(Color(.systemBackground))
+    }
+
+    // MARK: - 节点层
+
+    /// 节点层：使用SwiftUI视图渲染所有节点，支持自由拖动和参数编辑
+    private var nodesLayer: some View {
+        ForEach(workflow.nodes) { node in
+            let screenX = node.position.x * zoom + offset.x
+            let screenY = node.position.y * zoom + offset.y
+
+            NodeView(
+                node: node,
+                isSelected: selectedNodeIdForEdit == node.id,
+                viewModel: viewModel,
+                onTap: {
+                    viewModel.selectNode(node.id)
+                },
+                onInfo: {
+                    selectedNodeId = node.id
+                },
+                onDrag: { translation in
+                    viewModel.moveNode(id: node.id, by: translation)
+                }
+            )
+            .scaleEffect(zoom, anchor: .topLeading)
+            .offset(x: screenX, y: screenY)
+        }
     }
 
     // MARK: - 分组绘制
@@ -262,455 +231,6 @@ struct WorkflowCanvasView: View {
                 control1: CGPoint(x: from.x + offset, y: from.y),
                 control2: CGPoint(x: to.x - offset, y: to.y)
             )
-        }
-    }
-
-    // MARK: - 节点绘制
-
-    /// 绘制所有节点
-    private func drawNodes(context: GraphicsContext, highlightedId: Int? = nil) {
-        for node in workflow.nodes {
-            let rect = CGRect(origin: node.position, size: node.nodeSize)
-            let shape = RoundedRectangle(cornerRadius: 8)
-
-            // 高亮节点发光效果（搜索定位）
-            if highlightedId == node.id {
-                context.fill(shape.path(in: rect.insetBy(dx: -6, dy: -6)), with: .color(.yellow.opacity(0.4)))
-            }
-
-            // 选中编辑状态：蓝色发光边框
-            if selectedNodeIdForEdit == node.id {
-                context.fill(shape.path(in: rect.insetBy(dx: -4, dy: -4)), with: .color(.blue.opacity(0.3)))
-                context.stroke(shape.path(in: rect.insetBy(dx: -2, dy: -2)), with: .color(.blue), lineWidth: 2.5)
-            }
-
-            context.fill(shape.path(in: rect), with: .color(node.bodyColor))
-            context.stroke(shape.path(in: rect), with: .color(node.headerColor), lineWidth: 2)
-
-            let headerHeight = min(30, rect.height * 0.4)
-            let headerRect = CGRect(
-                x: rect.minX,
-                y: rect.minY,
-                width: rect.width,
-                height: headerHeight
-            )
-            context.fill(shape.path(in: headerRect), with: .color(node.headerColor))
-
-            let titleText = Text(node.displayTitle)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white)
-            context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
-
-            // 右上角双圈圆点（详情页入口）
-            let infoButtonSize: CGFloat = 18
-            let infoButtonX = rect.maxX - infoButtonSize - 6
-            let infoButtonY = headerRect.midY - infoButtonSize / 2
-            let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
-            // 外圈
-            context.stroke(Path(ellipseIn: infoButtonRect), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
-            // 内圈
-            let innerInset: CGFloat = 4
-            context.stroke(Path(ellipseIn: infoButtonRect.insetBy(dx: innerInset, dy: innerInset)), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
-
-            // 控件区域（居中，避开左右两侧插槽标签区域）
-            // 边距根据节点宽度动态调整，确保窄节点也有控件显示空间
-            let widgetTop = headerRect.maxY + 6
-            let widgetBottom = rect.maxY - 20
-            // 基础边距：左侧输入插槽标签+圆点，右侧输出插槽标签+圆点
-            let baseLeftInset: CGFloat = 75
-            let baseRightInset: CGFloat = 85
-            // 节点较窄时按比例压缩边距，确保控件区域最小宽度60pt
-            let minWidgetWidth: CGFloat = 60
-            var leftInset = baseLeftInset
-            var rightInset = baseRightInset
-            if rect.width - leftInset - rightInset < minWidgetWidth {
-                let available = rect.width - minWidgetWidth
-                let totalInset = baseLeftInset + baseRightInset
-                let scale = min(1.0, available / totalInset)
-                leftInset = baseLeftInset * scale
-                rightInset = baseRightInset * scale
-            }
-            let widgetX = rect.minX + leftInset
-            let widgetWidth = max(40, rect.width - leftInset - rightInset)
-            if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
-                drawWidgets(
-                    context: context,
-                    widgets: widgets,
-                    names: node.widgetNames,
-                    in: CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
-                )
-            }
-
-            // 节点类型文字（底部）
-            let typeLabelHeight: CGFloat = 16
-            let typeRect = CGRect(
-                x: rect.minX,
-                y: rect.maxY - typeLabelHeight,
-                width: rect.width,
-                height: typeLabelHeight
-            )
-            let typeText = Text(node.type)
-                .font(.system(size: 8))
-                .foregroundColor(.secondary)
-            context.draw(typeText, in: typeRect.insetBy(dx: 8, dy: 2))
-
-            drawSlots(context: context, node: node)
-        }
-    }
-
-    // MARK: - 控件绘制
-
-    /// 绘制节点内部控件（只读展示，参数名与控件同一行显示，文本单行截断，全部展示不折叠）
-    private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], names: [String], in rect: CGRect) {
-        let controlHeight: CGFloat = 16
-        let rowSpacing: CGFloat = 6
-        let labelWidth: CGFloat = 48
-        let labelFont = UIFont.systemFont(ofSize: 8)
-        let valueFont = UIFont.systemFont(ofSize: 8)
-        var currentY = rect.minY
-
-        for (index, widget) in widgets.enumerated() {
-            // 固定行高，文本单行显示不换行
-            let totalRowHeight = controlHeight + rowSpacing
-
-            // 参数名标签（左侧，固定宽度，右对齐，与控件垂直居中）
-            let rawName = index < names.count ? names[index] : "参数\(index + 1)"
-            let paramName = SlotLocalization.localized(for: rawName)
-            let displayName = truncatedText(paramName, font: labelFont, maxWidth: labelWidth - 4)
-            let labelText = Text(displayName)
-                .font(.system(size: 8))
-                .foregroundColor(.secondary)
-            let labelCenterY = currentY + controlHeight / 2
-            context.draw(labelText, at: CGPoint(x: rect.minX + labelWidth - 2, y: labelCenterY), anchor: .trailing)
-
-            // 控件区域（右侧，剩余宽度）
-            let controlX = rect.minX + labelWidth + 4
-            let controlWidth = rect.width - labelWidth - 4
-            let controlY = currentY
-
-            switch widget.widgetKind {
-            case .toggle:
-                let isOn = widget.boolValue
-                let toggleRect = CGRect(x: controlX, y: controlY + 1, width: 28, height: 14)
-                let toggleShape = RoundedRectangle(cornerRadius: 7)
-                context.fill(toggleShape.path(in: toggleRect), with: .color(isOn ? .green : .gray.opacity(0.4)))
-                let knobX = isOn ? toggleRect.maxX - 11 : toggleRect.minX + 2
-                let knobRect = CGRect(x: knobX, y: toggleRect.minY + 1, width: 11, height: 12)
-                context.fill(Path(ellipseIn: knobRect), with: .color(.white))
-                let statusText = Text(isOn ? "开" : "关")
-                    .font(.system(size: 8))
-                    .foregroundColor(.secondary)
-                context.draw(statusText, at: CGPoint(x: toggleRect.maxX + 4, y: controlY + 8), anchor: .leading)
-
-            case .number:
-                // 数字框 + 迷你滑块条
-                let numWidth: CGFloat = 48
-                let numRect = CGRect(x: controlX, y: controlY, width: numWidth, height: controlHeight)
-                let numShape = RoundedRectangle(cornerRadius: 4)
-                context.fill(numShape.path(in: numRect), with: .color(Color(.tertiarySystemBackground)))
-                context.stroke(numShape.path(in: numRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
-                let numText = Text(widget.displayString)
-                    .font(.system(size: 9))
-                    .foregroundColor(.primary)
-                context.draw(numText, in: numRect.insetBy(dx: 4, dy: 1))
-
-                // 迷你滑块条（可拖动交互，旋钮位置根据数值比例显示）
-                let sliderX = numRect.maxX + 6
-                let sliderWidth = max(0, controlWidth - numWidth - 6)
-                if sliderWidth > 20 {
-                    let sliderRect = CGRect(x: sliderX, y: controlY + 6, width: sliderWidth, height: 4)
-                    context.fill(Path(roundedRect: sliderRect, cornerSize: CGSize(width: 2, height: 2)),
-                               with: .color(.gray.opacity(0.25)))
-                    // 根据数值计算旋钮位置（范围0-100）
-                    let numericValue: Double
-                    switch widget {
-                    case .int(let v): numericValue = Double(v)
-                    case .double(let v): numericValue = v
-                    default: numericValue = 0
-                    }
-                    let ratio = max(0, min(1, numericValue / 100))
-                    let knobX = sliderX + sliderWidth * ratio
-                    let knobRect = CGRect(x: knobX - 4, y: controlY + 3, width: 8, height: 10)
-                    context.fill(Path(ellipseIn: knobRect), with: .color(.blue))
-                }
-
-            case .text:
-                let text = widget.displayString
-                let isShortEnum = text.count <= 15 && !text.contains(" ") && !text.contains("\n") && controlWidth > 60
-                let textRect = CGRect(x: controlX, y: controlY, width: controlWidth, height: controlHeight)
-                let textShape = RoundedRectangle(cornerRadius: 4)
-                context.fill(textShape.path(in: textRect), with: .color(Color(.tertiarySystemBackground)))
-                context.stroke(textShape.path(in: textRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
-
-                // 文本单行显示，超出截断（预留箭头空间）
-                let textMaxWidth = isShortEnum ? controlWidth - 16 : controlWidth - 8
-                let displayText = truncatedText(text, font: valueFont, maxWidth: textMaxWidth)
-                let textView = Text(displayText)
-                    .font(.system(size: 8))
-                    .foregroundColor(.primary)
-                context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
-
-                if isShortEnum {
-                    // 短文本：显示下拉箭头（模拟下拉菜单外观）
-                    let arrowX = textRect.maxX - 12
-                    let arrowPath = Path { p in
-                        p.move(to: CGPoint(x: arrowX, y: controlY + 5))
-                        p.addLine(to: CGPoint(x: arrowX + 4, y: controlY + 9))
-                        p.addLine(to: CGPoint(x: arrowX + 8, y: controlY + 5))
-                    }
-                    context.stroke(arrowPath, with: .color(.gray), lineWidth: 1)
-                }
-            }
-
-            currentY += totalRowHeight
-        }
-    }
-
-    // MARK: - 插槽绘制与定位
-
-    /// 绘制节点的输入/输出插槽及名称标签
-    private func drawSlots(context: GraphicsContext, node: NodeModel) {
-        let dotSize: CGFloat = 10
-        let labelFont = UIFont.systemFont(ofSize: 9)
-
-        // 输出插槽（节点右侧）：圆点在右边缘，标签在圆点左侧（节点内部右侧），右对齐，最大宽度70pt
-        if let outputs = node.outputs {
-            for (index, slot) in outputs.enumerated() {
-                let point = getSlotPosition(node: node, slotIndex: index, isOutput: true)
-                let dotRect = CGRect(
-                    x: point.x - dotSize / 2,
-                    y: point.y - dotSize / 2,
-                    width: dotSize,
-                    height: dotSize
-                )
-                let slotColor = SlotTypeColor.color(for: slot.type)
-                context.fill(Path(ellipseIn: dotRect), with: .color(slotColor))
-                context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
-
-                if let slotName = slot.name, !slotName.isEmpty {
-                    let localized = SlotLocalization.localized(for: slotName)
-                    let maxWidth: CGFloat = 70
-                    let displayName = truncatedText(localized, font: labelFont, maxWidth: maxWidth)
-                    let nameText = Text(displayName)
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                    let labelPoint = CGPoint(x: point.x - dotSize / 2 - 5, y: point.y)
-                    context.draw(nameText, at: labelPoint, anchor: .trailing)
-                }
-            }
-        }
-
-        // 输入插槽（节点左侧）：圆点在左边缘，标签在圆点右侧（节点内部左侧），左对齐，最大宽度60pt
-        if let inputs = node.inputs {
-            for (index, slot) in inputs.enumerated() {
-                let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
-                let dotRect = CGRect(
-                    x: point.x - dotSize / 2,
-                    y: point.y - dotSize / 2,
-                    width: dotSize,
-                    height: dotSize
-                )
-                let slotColor = SlotTypeColor.color(for: slot.type)
-                context.fill(Path(ellipseIn: dotRect), with: .color(slotColor))
-                context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 1.5)
-
-                if let slotName = slot.name, !slotName.isEmpty {
-                    let localized = SlotLocalization.localized(for: slotName)
-                    let maxWidth: CGFloat = 60
-                    let displayName = truncatedText(localized, font: labelFont, maxWidth: maxWidth)
-                    let nameText = Text(displayName)
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                    let labelPoint = CGPoint(x: point.x + dotSize / 2 + 5, y: point.y)
-                    context.draw(nameText, at: labelPoint, anchor: .leading)
-                }
-            }
-        }
-    }
-
-    /// 文本截断：超过最大宽度时显示省略号
-    private func truncatedText(_ text: String, font: UIFont, maxWidth: CGFloat) -> String {
-        let nsText = text as NSString
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let textWidth = nsText.size(withAttributes: attributes).width
-        if textWidth <= maxWidth { return text }
-        // 逐步截断直到符合宽度
-        var result = text
-        while result.count > 1 {
-            result = String(result.dropLast())
-            let candidate = result + "…"
-            let candidateWidth = (candidate as NSString).size(withAttributes: attributes).width
-            if candidateWidth <= maxWidth { return candidate }
-        }
-        return "…"
-    }
-
-    /// 计算插槽在画布中的坐标
-    private func getSlotPosition(node: NodeModel, slotIndex: Int, isOutput: Bool) -> CGPoint {
-        let rect = CGRect(origin: node.position, size: node.nodeSize)
-        let headerHeight = min(30, rect.height * 0.4)
-        let slotAreaTop = rect.minY + headerHeight + 8
-        let slotGap: CGFloat = 20
-        let y = slotAreaTop + CGFloat(slotIndex) * slotGap
-
-        if isOutput {
-            return CGPoint(x: rect.maxX, y: y)
-        } else {
-            return CGPoint(x: rect.minX, y: y)
-        }
-    }
-
-    // MARK: - 背景网格
-
-    private func drawGrid(context: GraphicsContext, viewSize: CGSize) {
-        let gridStep: CGFloat = 40
-        var path = Path()
-        for x in stride(from: 0, through: viewSize.width, by: gridStep) {
-            path.move(to: CGPoint(x: x, y: 0))
-            path.addLine(to: CGPoint(x: x, y: viewSize.height))
-        }
-        for y in stride(from: 0, through: viewSize.height, by: gridStep) {
-            path.move(to: CGPoint(x: 0, y: y))
-            path.addLine(to: CGPoint(x: viewSize.width, y: y))
-        }
-        context.stroke(path, with: .color(.gray.opacity(0.15)), lineWidth: 0.5)
-    }
-
-    // MARK: - 选中节点的可交互控件层（直接在文本框内编辑）
-
-    /// 选中节点的可交互控件视图（使用VStack相对布局，避免绝对定位导致的漂移）
-    private func editableControls(for node: NodeModel) -> some View {
-        let rect = CGRect(origin: .zero, size: node.nodeSize)
-        let headerHeight = min(30, rect.height * 0.4)
-        let widgetTop = headerHeight + 6
-        // 与drawNodes一致的动态边距计算
-        let baseLeftInset: CGFloat = 75
-        let baseRightInset: CGFloat = 85
-        let minWidgetWidth: CGFloat = 60
-        var leftInset = baseLeftInset
-        var rightInset = baseRightInset
-        if rect.width - leftInset - rightInset < minWidgetWidth {
-            let available = rect.width - minWidgetWidth
-            let totalInset = baseLeftInset + baseRightInset
-            let scale = min(1.0, available / totalInset)
-            leftInset = baseLeftInset * scale
-            rightInset = baseRightInset * scale
-        }
-        let widgetWidth = rect.width - leftInset - rightInset
-        let labelWidth: CGFloat = 48
-        let rowHeight: CGFloat = 22
-
-        return VStack(alignment: .leading, spacing: 0) {
-            Spacer().frame(height: widgetTop)
-            if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
-                ForEach(Array(widgets.enumerated()), id: \.offset) { index, widget in
-                    let controlWidth = widgetWidth - labelWidth - 4
-                    let rawName = index < node.widgetNames.count ? node.widgetNames[index] : "参数\(index + 1)"
-                    let paramName = SlotLocalization.localized(for: rawName)
-
-                    HStack(spacing: 0) {
-                        // 参数名标签（右对齐，与Canvas一致）
-                        Text(paramName)
-                            .font(.system(size: 8))
-                            .foregroundColor(.secondary)
-                            .frame(width: labelWidth - 2, height: 16, alignment: .trailing)
-                            .lineLimit(1)
-
-                        Spacer().frame(width: 4)
-
-                        // 控件区域（从workflow获取最新值，避免显示旧值）
-                        editableWidgetControl(widget: widget, index: index, nodeId: node.id,
-                                              controlWidth: controlWidth)
-                    }
-                    .frame(width: widgetWidth, height: rowHeight, alignment: .leading)
-                }
-            }
-            Spacer()
-        }
-        .padding(.leading, leftInset)
-        .padding(.trailing, rightInset)
-        .frame(width: rect.width, height: rect.height, alignment: .topLeading)
-        .contentShape(Rectangle())
-        .onTapGesture { }
-    }
-
-    /// 单个可交互控件（TextField/Toggle/Slider），get从viewModel获取最新值
-    private func editableWidgetControl(widget: WidgetValue, index: Int, nodeId: Int, controlWidth: CGFloat) -> some View {
-        Group {
-            switch widget.widgetKind {
-            case .toggle:
-                Toggle("", isOn: Binding(
-                    get: { viewModel.currentWidgetValue(nodeID: nodeId, index: index)?.boolValue ?? false },
-                    set: { newValue in
-                        viewModel.updateWidget(nodeID: nodeId, index: index, value: .bool(newValue))
-                    }
-                ))
-                .labelsHidden()
-                .frame(width: 28, height: 16)
-
-            case .number:
-                HStack(spacing: 6) {
-                    // 数字输入框
-                    TextField("", text: Binding(
-                        get: { viewModel.currentWidgetValue(nodeID: nodeId, index: index)?.displayString ?? "" },
-                        set: { newValue in
-                            let original = viewModel.currentWidgetValue(nodeID: nodeId, index: index)
-                            if case .int = original {
-                                if let intValue = Int(newValue) {
-                                    viewModel.updateWidget(nodeID: nodeId, index: index, value: .int(intValue))
-                                }
-                            } else {
-                                if let doubleValue = Double(newValue) {
-                                    viewModel.updateWidget(nodeID: nodeId, index: index, value: .double(doubleValue))
-                                }
-                            }
-                        }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 9))
-                    .keyboardType(.decimalPad)
-                    .frame(width: 48, height: 16)
-                    .multilineTextAlignment(.center)
-
-                    // 滑块
-                    if controlWidth > 74 {
-                        Slider(value: Binding(
-                            get: {
-                                if let v = viewModel.currentWidgetValue(nodeID: nodeId, index: index) {
-                                    switch v {
-                                    case .int(let val): return Double(val)
-                                    case .double(let val): return val
-                                    default: return 0
-                                    }
-                                }
-                                return 0
-                            },
-                            set: { newValue in
-                                let original = viewModel.currentWidgetValue(nodeID: nodeId, index: index)
-                                if case .int = original {
-                                    viewModel.updateWidget(nodeID: nodeId, index: index, value: .int(Int(newValue)))
-                                } else {
-                                    viewModel.updateWidget(nodeID: nodeId, index: index, value: .double(newValue))
-                                }
-                            }
-                        ), in: 0...100)
-                        .frame(width: controlWidth - 54, height: 16)
-                    }
-                }
-
-            case .text:
-                TextField("", text: Binding(
-                    get: { viewModel.currentWidgetValue(nodeID: nodeId, index: index)?.displayString ?? "" },
-                    set: { newValue in
-                        viewModel.updateWidget(nodeID: nodeId, index: index, value: .string(newValue))
-                    }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 8))
-                .frame(width: controlWidth, height: 16)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            }
         }
     }
 }
