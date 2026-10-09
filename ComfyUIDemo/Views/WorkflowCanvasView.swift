@@ -21,12 +21,6 @@ struct WorkflowCanvasView: View {
     @State private var viewSize: CGSize = .zero
     /// 高亮节点ID（搜索定位时使用）
     @State private var highlightedNodeId: Int?
-    /// 当前正在编辑的单个参数（nodeId + widgetIndex）
-    @State private var editingWidget: (nodeId: Int, index: Int)?
-    /// 单参数编辑弹窗的输入文本
-    @State private var editingText: String = ""
-    /// 是否显示单参数编辑弹窗
-    @State private var showWidgetEditor: Bool = false
     /// 当前选中用于编辑的节点ID（点击节点空白区域选中，点击画布空白区域取消）
     @State private var selectedNodeIdForEdit: Int?
 
@@ -152,24 +146,11 @@ struct WorkflowCanvasView: View {
 
                     if isInWidgetArea && hasWidgets {
                         // 点击控件区域
-                        if selectedNodeIdForEdit == node.id {
-                            // 节点已选中 → 编辑参数
-                            let rowHeight: CGFloat = 22
-                            let relativeY = worldPoint.y - widgetTop
-                            let index = Int(relativeY / rowHeight)
-                            guard index >= 0, index < (node.widgetsValues?.count ?? 0) else { return }
-                            let widget = node.widgetsValues![index]
-                            if case .toggle = widget.widgetKind {
-                                toggleWidget(nodeId: node.id, index: index)
-                            } else {
-                                editingWidget = (node.id, index)
-                                editingText = widget.displayString
-                                showWidgetEditor = true
-                            }
-                        } else {
-                            // 节点未选中 → 先选中节点
+                        if selectedNodeIdForEdit != node.id {
+                            // 节点未选中 → 先选中节点（选中后overlay中的可交互控件会处理后续点击）
                             selectedNodeIdForEdit = node.id
                         }
+                        // 节点已选中 → 不做处理，让overlay中的TextField/Toggle/Slider直接响应
                     } else {
                         // 点击节点空白区域（header或控件区外）→ 选中节点
                         selectedNodeIdForEdit = node.id
@@ -180,32 +161,6 @@ struct WorkflowCanvasView: View {
                     set: { selectedNodeId = $0?.id }
                 )) { wrapper in
                     NodeDetailSheet(workflow: $workflow, nodeId: wrapper.id)
-                }
-                .alert("编辑参数", isPresented: $showWidgetEditor) {
-                    TextField("参数值", text: $editingText)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                    Button("取消", role: .cancel) {
-                        editingWidget = nil
-                    }
-                    Button("保存") {
-                        // 先获取editingWidget，再清空，避免alert关闭时editingWidget被置nil
-                        let target = editingWidget
-                        editingWidget = nil
-                        if let target = target {
-                            saveEditedWidget(nodeId: target.nodeId, index: target.index, text: editingText)
-                        }
-                    }
-                } message: {
-                    if let editing = editingWidget,
-                       let node = workflow.nodeMap[editing.nodeId],
-                       let widgets = node.widgetsValues,
-                       editing.index < widgets.count {
-                        let rawName = editing.index < node.widgetNames.count ? node.widgetNames[editing.index] : "参数\(editing.index + 1)"
-                        Text(SlotLocalization.bilingual(for: rawName))
-                    } else {
-                        Text("")
-                    }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .resetCanvasView)) { _ in
                     fitToView(size: geometry.size)
@@ -221,6 +176,15 @@ struct WorkflowCanvasView: View {
                         DispatchQueue.main.async {
                             fitToView(size: geometry.size)
                         }
+                    }
+                }
+                // 选中节点的可交互控件层（直接在文本框内编辑，无需弹窗）
+                .overlay(alignment: .topLeading) {
+                    if let nodeId = selectedNodeIdForEdit, let node = workflow.nodeMap[nodeId] {
+                        editableControls(for: node)
+                            .offset(x: node.position.x * zoom + offset.x,
+                                    y: node.position.y * zoom + offset.y)
+                            .scaleEffect(zoom)
                     }
                 }
 
@@ -833,6 +797,151 @@ struct WorkflowCanvasView: View {
         }
         // 直接修改数组元素，确保触发@Binding更新
         workflow.nodes[nodeIndex].widgetsValues![index] = newValue
+    }
+
+    // MARK: - 选中节点的可交互控件层（直接在文本框内编辑）
+
+    /// 选中节点的可交互控件视图（与Canvas绘制的控件布局一致）
+    @ViewBuilder
+    private func editableControls(for node: NodeModel) -> some View {
+        let rect = CGRect(origin: .zero, size: node.nodeSize)
+        let headerHeight = min(30, rect.height * 0.4)
+        let widgetTop = headerHeight + 6
+        let widgetBottom = rect.height - 20
+        // 与drawNodes一致的动态边距计算
+        let baseLeftInset: CGFloat = 75
+        let baseRightInset: CGFloat = 85
+        let minWidgetWidth: CGFloat = 60
+        var leftInset = baseLeftInset
+        var rightInset = baseRightInset
+        if rect.width - leftInset - rightInset < minWidgetWidth {
+            let available = rect.width - minWidgetWidth
+            let totalInset = baseLeftInset + baseRightInset
+            let scale = min(1.0, available / totalInset)
+            leftInset = baseLeftInset * scale
+            rightInset = baseRightInset * scale
+        }
+        let widgetX = leftInset
+        let widgetWidth = rect.width - leftInset - rightInset
+        let labelWidth: CGFloat = 48
+        let rowHeight: CGFloat = 22
+
+        ZStack(alignment: .topLeading) {
+            if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
+                ForEach(Array(widgets.enumerated()), id: \.offset) { index, widget in
+                    let controlY = widgetTop + CGFloat(index) * rowHeight
+                    let controlX = widgetX + labelWidth + 4
+                    let controlWidth = widgetWidth - labelWidth - 4
+                    let rawName = index < node.widgetNames.count ? node.widgetNames[index] : "参数\(index + 1)"
+                    let paramName = SlotLocalization.localized(for: rawName)
+
+                    HStack(spacing: 0) {
+                        // 参数名标签（右对齐，与Canvas一致）
+                        Text(paramName)
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                            .frame(width: labelWidth - 2, alignment: .trailing)
+                            .lineLimit(1)
+
+                        Spacer().frame(width: 4)
+
+                        // 控件区域
+                        editableWidgetControl(widget: widget, index: index, nodeId: node.id,
+                                              controlWidth: controlWidth)
+                    }
+                    .frame(width: widgetWidth, height: 16, alignment: .leading)
+                    .position(x: widgetX + widgetWidth / 2, y: controlY + 8)
+                }
+            }
+        }
+        .frame(width: rect.width, height: rect.height)
+        .contentShape(Rectangle())
+        // 阻止点击事件传递到Canvas，确保TextField能获得焦点
+        .onTapGesture { }
+    }
+
+    /// 单个可交互控件（TextField/Toggle/Slider）
+    @ViewBuilder
+    private func editableWidgetControl(widget: WidgetValue, index: Int, nodeId: Int, controlWidth: CGFloat) -> some View {
+        switch widget.widgetKind {
+        case .toggle:
+            Toggle("", isOn: Binding(
+                get: { widget.boolValue },
+                set: { newValue in
+                    if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
+                        workflow.nodes[nodeIndex].widgetsValues?[index] = .bool(newValue)
+                    }
+                }
+            ))
+            .labelsHidden()
+            .frame(width: 28)
+
+        case .number:
+            HStack(spacing: 6) {
+                // 数字输入框
+                TextField("", text: Binding(
+                    get: { widget.displayString },
+                    set: { newValue in
+                        if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
+                            let original = workflow.nodes[nodeIndex].widgetsValues?[index]
+                            if case .int = original {
+                                if let intValue = Int(newValue) {
+                                    workflow.nodes[nodeIndex].widgetsValues?[index] = .int(intValue)
+                                }
+                            } else {
+                                if let doubleValue = Double(newValue) {
+                                    workflow.nodes[nodeIndex].widgetsValues?[index] = .double(doubleValue)
+                                }
+                            }
+                        }
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 9))
+                .keyboardType(.decimalPad)
+                .frame(width: 48, height: 16)
+                .multilineTextAlignment(.center)
+
+                // 滑块
+                if controlWidth > 74 {
+                    Slider(value: Binding(
+                        get: {
+                            switch widget {
+                            case .int(let v): return Double(v)
+                            case .double(let v): return v
+                            default: return 0
+                            }
+                        },
+                        set: { newValue in
+                            if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
+                                let original = workflow.nodes[nodeIndex].widgetsValues?[index]
+                                if case .int = original {
+                                    workflow.nodes[nodeIndex].widgetsValues?[index] = .int(Int(newValue))
+                                } else {
+                                    workflow.nodes[nodeIndex].widgetsValues?[index] = .double(newValue)
+                                }
+                            }
+                        }
+                    ), in: 0...100)
+                    .frame(width: controlWidth - 54, height: 16)
+                }
+            }
+
+        case .text:
+            TextField("", text: Binding(
+                get: { widget.displayString },
+                set: { newValue in
+                    if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
+                        workflow.nodes[nodeIndex].widgetsValues?[index] = .string(newValue)
+                    }
+                }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: 8))
+            .frame(width: controlWidth, height: 16)
+            .lineLimit(1)
+            .truncationMode(.tail)
+        }
     }
 }
 
