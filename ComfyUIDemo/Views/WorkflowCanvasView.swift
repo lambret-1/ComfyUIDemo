@@ -243,12 +243,12 @@ struct WorkflowCanvasView: View {
             context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
 
             // 控件区域（居中，避开左右两侧插槽标签区域）
-            // 左侧输入插槽标签最大宽度75pt + 圆点5pt + 间距 = 90pt
-            // 右侧输出插槽标签最大宽度90pt + 圆点5pt + 间距 = 105pt
+            // 左侧输入插槽标签最大宽度60pt + 圆点5pt + 间距 = 75pt
+            // 右侧输出插槽标签最大宽度70pt + 圆点5pt + 间距 = 85pt
             let widgetTop = headerRect.maxY + 6
             let widgetBottom = rect.maxY - 20
-            let leftInset: CGFloat = 90
-            let rightInset: CGFloat = 105
+            let leftInset: CGFloat = 75
+            let rightInset: CGFloat = 85
             let widgetX = rect.minX + leftInset
             let widgetWidth = max(40, rect.width - leftInset - rightInset)
             if let widgets = node.widgetsValues, !widgets.isEmpty, widgetWidth > 40 {
@@ -279,28 +279,18 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 控件绘制
 
-    /// 绘制节点内部控件（只读展示，参数名与控件同一行显示，全部展示不折叠）
+    /// 绘制节点内部控件（只读展示，参数名与控件同一行显示，文本单行截断，全部展示不折叠）
     private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], names: [String], in rect: CGRect) {
         let controlHeight: CGFloat = 16
         let rowSpacing: CGFloat = 6
         let labelWidth: CGFloat = 48
         let labelFont = UIFont.systemFont(ofSize: 8)
+        let valueFont = UIFont.systemFont(ofSize: 8)
         var currentY = rect.minY
 
         for (index, widget) in widgets.enumerated() {
-            // 计算当前控件需要的高度
-            var neededControlHeight = controlHeight
-            if case .text = widget.widgetKind {
-                let font = UIFont.systemFont(ofSize: 8)
-                let textHeight = widget.displayString.boundingRect(
-                    with: CGSize(width: rect.width - labelWidth - 8, height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    attributes: [.font: font],
-                    context: nil
-                ).height
-                neededControlHeight = max(controlHeight, ceil(textHeight) + 4)
-            }
-            let totalRowHeight = neededControlHeight + rowSpacing
+            // 固定行高，文本单行显示不换行
+            let totalRowHeight = controlHeight + rowSpacing
 
             // 参数名标签（左侧，固定宽度，右对齐，与控件垂直居中）
             let rawName = index < names.count ? names[index] : "参数\(index + 1)"
@@ -309,7 +299,7 @@ struct WorkflowCanvasView: View {
             let labelText = Text(displayName)
                 .font(.system(size: 8))
                 .foregroundColor(.secondary)
-            let labelCenterY = currentY + neededControlHeight / 2
+            let labelCenterY = currentY + controlHeight / 2
             context.draw(labelText, at: CGPoint(x: rect.minX + labelWidth - 2, y: labelCenterY), anchor: .trailing)
 
             // 控件区域（右侧，剩余宽度）
@@ -358,18 +348,21 @@ struct WorkflowCanvasView: View {
             case .text:
                 let text = widget.displayString
                 let isShortEnum = text.count <= 15 && !text.contains(" ") && !text.contains("\n") && controlWidth > 60
-                let textRect = CGRect(x: controlX, y: controlY, width: controlWidth, height: neededControlHeight)
+                let textRect = CGRect(x: controlX, y: controlY, width: controlWidth, height: controlHeight)
                 let textShape = RoundedRectangle(cornerRadius: 4)
                 context.fill(textShape.path(in: textRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(textShape.path(in: textRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
 
+                // 文本单行显示，超出截断（预留箭头空间）
+                let textMaxWidth = isShortEnum ? controlWidth - 16 : controlWidth - 8
+                let displayText = truncatedText(text, font: valueFont, maxWidth: textMaxWidth)
+                let textView = Text(displayText)
+                    .font(.system(size: 8))
+                    .foregroundColor(.primary)
+                context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
+
                 if isShortEnum {
-                    // 短文本：显示下拉箭头（模拟下拉菜单外观），预留箭头空间
-                    let textView = Text(text)
-                        .font(.system(size: 8))
-                        .foregroundColor(.primary)
-                    context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
-                    // 下拉箭头
+                    // 短文本：显示下拉箭头（模拟下拉菜单外观）
                     let arrowX = textRect.maxX - 12
                     let arrowPath = Path { p in
                         p.move(to: CGPoint(x: arrowX, y: controlY + 5))
@@ -377,12 +370,6 @@ struct WorkflowCanvasView: View {
                         p.addLine(to: CGPoint(x: arrowX + 8, y: controlY + 5))
                     }
                     context.stroke(arrowPath, with: .color(.gray), lineWidth: 1)
-                } else {
-                    // 长文本：多行显示
-                    let textView = Text(text)
-                        .font(.system(size: 8))
-                        .foregroundColor(.primary)
-                    context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
                 }
             }
 
@@ -397,7 +384,7 @@ struct WorkflowCanvasView: View {
         let dotSize: CGFloat = 10
         let labelFont = UIFont.systemFont(ofSize: 9)
 
-        // 输出插槽（节点右侧）：圆点在右边缘，标签在圆点左侧（节点内部右侧），右对齐，最大宽度90pt
+        // 输出插槽（节点右侧）：圆点在右边缘，标签在圆点左侧（节点内部右侧），右对齐，最大宽度70pt
         if let outputs = node.outputs {
             for (index, slot) in outputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: true)
@@ -413,19 +400,18 @@ struct WorkflowCanvasView: View {
 
                 if let slotName = slot.name, !slotName.isEmpty {
                     let localized = SlotLocalization.localized(for: slotName)
-                    let maxWidth: CGFloat = 90
+                    let maxWidth: CGFloat = 70
                     let displayName = truncatedText(localized, font: labelFont, maxWidth: maxWidth)
                     let nameText = Text(displayName)
                         .font(.system(size: 9))
                         .foregroundColor(.secondary)
-                    // 标签在圆点左侧（节点内部），右对齐
                     let labelPoint = CGPoint(x: point.x - dotSize / 2 - 5, y: point.y)
                     context.draw(nameText, at: labelPoint, anchor: .trailing)
                 }
             }
         }
 
-        // 输入插槽（节点左侧）：圆点在左边缘，标签在圆点右侧（节点内部左侧），左对齐，最大宽度75pt
+        // 输入插槽（节点左侧）：圆点在左边缘，标签在圆点右侧（节点内部左侧），左对齐，最大宽度60pt
         if let inputs = node.inputs {
             for (index, slot) in inputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
@@ -441,12 +427,11 @@ struct WorkflowCanvasView: View {
 
                 if let slotName = slot.name, !slotName.isEmpty {
                     let localized = SlotLocalization.localized(for: slotName)
-                    let maxWidth: CGFloat = 75
+                    let maxWidth: CGFloat = 60
                     let displayName = truncatedText(localized, font: labelFont, maxWidth: maxWidth)
                     let nameText = Text(displayName)
                         .font(.system(size: 9))
                         .foregroundColor(.secondary)
-                    // 标签在圆点右侧（节点内部），左对齐
                     let labelPoint = CGPoint(x: point.x + dotSize / 2 + 5, y: point.y)
                     context.draw(nameText, at: labelPoint, anchor: .leading)
                 }

@@ -102,23 +102,47 @@ struct NodeModel: Codable, Identifiable, Hashable {
         return CGPoint(x: pos[0], y: pos[1])
     }
 
-    /// 计算属性：节点尺寸（高度根据控件数量自适应，确保所有参数完整展示）
+    /// 计算属性：节点尺寸（宽度根据控件文本自适应，高度根据控件数量自适应）
     var nodeSize: CGSize {
-        guard size.count >= 2 else { return CGSize(width: 200, height: 80) }
-        let baseWidth = max(size[0], 80)
+        guard size.count >= 2 else { return CGSize(width: 360, height: 80) }
+        let minWidth: CGFloat = 360
+        let baseWidth = max(size[0], minWidth)
         let baseHeight = max(size[1], 40)
         let widgetCount = widgetsValues?.count ?? 0
-        guard widgetCount > 0 else {
-            return CGSize(width: baseWidth, height: baseHeight)
+
+        // 根据最长控件文本计算所需宽度
+        var neededWidth = baseWidth
+        if let widgets = widgetsValues {
+            let labelFont = UIFont.systemFont(ofSize: 8)
+            let leftInset: CGFloat = 75
+            let rightInset: CGFloat = 85
+            let labelWidth: CGFloat = 48
+            let padding: CGFloat = 20
+            for widget in widgets {
+                let text = widget.displayString
+                let textWidth = text.boundingRect(
+                    with: CGSize(width: .greatestFiniteMagnitude, height: 16),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: labelFont],
+                    context: nil
+                ).width
+                let totalWidth = leftInset + labelWidth + 4 + textWidth + padding + rightInset
+                neededWidth = max(neededWidth, totalWidth)
+            }
         }
-        // 根据控件数量计算所需高度
+
+        guard widgetCount > 0 else {
+            return CGSize(width: neededWidth, height: baseHeight)
+        }
+
+        // 根据控件数量计算所需高度（固定行高，文本单行显示）
         let headerHeight: CGFloat = 30
         let widgetTopPadding: CGFloat = 6
         let widgetBottomPadding: CGFloat = 20
-        let rowHeight: CGFloat = 22 // controlHeight(16) + rowSpacing(6)
+        let rowHeight: CGFloat = 22
         let neededHeight = headerHeight + widgetTopPadding + CGFloat(widgetCount) * rowHeight + widgetBottomPadding
         let finalHeight = max(baseHeight, neededHeight)
-        return CGSize(width: baseWidth, height: finalHeight)
+        return CGSize(width: neededWidth, height: finalHeight)
     }
 
     /// 节点显示标题：优先 title，其次 type
