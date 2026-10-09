@@ -351,8 +351,6 @@ struct WorkflowCanvasView: View {
                 let textView = Text(text)
                     .font(.system(size: 8))
                     .foregroundColor(.primary)
-                    .lineLimit(nil)
-                    .multilineTextAlignment(.leading)
                 context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
                 // 多行文本占用额外行高
                 currentY += max(0, neededHeight - controlHeight)
