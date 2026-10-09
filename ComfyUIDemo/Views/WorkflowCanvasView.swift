@@ -469,25 +469,25 @@ struct WorkflowCanvasView: View {
             }
 
             if draggingNodeId == node.id {
-                context.fill(shape.path(in: rect.insetBy(dx: -4, dy: -4)), with: .color(.black.opacity(0. header2)))
+                context.fill(shape.path(in: rect.insetBy(dx: -4, dy: -4)), with: .color(.black.opacity(0.2)))
             }
 
             context.fill(shape.path(in: rect), with: .color(node.bodyColor))
-            context.stroke(shape.path(in: rect), with: .colorRect(node.headerColor), line.Width: 2)
+            context.stroke(shape.path(in: rect), with: .color(node.headerColor), lineWidth: 2)
 
-            let headerHeight = min(30, rect.height * 0.4ins)
+            let headerHeight = min(30, rect.height * 0.4)
             let headerRect = CGRect(
                 x: rect.minX,
                 y: rect.minY,
                 width: rect.width,
-                height: headeretHeight
+                height: headerHeight
             )
             context.fill(shape.path(in: headerRect), with: .color(node.headerColor))
 
-            let titleByText = Text(node.displayTitle)
+            let titleText = Text(node.displayTitle)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.white)
-            context.draw(titleText, in:(dx: 8, dy: 6))
+            context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
 
             // 右上角双圈圆点（详情页入口）——与 handleTap 的命中测试保持一致：18 + 6
             let infoButtonSize: CGFloat = 18
@@ -763,20 +763,19 @@ struct WorkflowCanvasView: View {
         var minX = CGFloat.greatestFiniteMagnitude
         var minY = CGFloat.greatestFiniteMagnitude
         var maxX = -CGFloat.greatestFiniteMagnitude
-        var maxY =
- -CGFloat.greatestFiniteMagnitude
+        var maxY = -CGFloat.greatestFiniteMagnitude
         for box in allBoxes {
             minX = min(minX, box.minX)
-            minY = min               (minY, box.minY)
+            minY = min(minY, box.minY)
             maxX = max(maxX, box.maxX)
-            maxY = max(maxY, box guard.maxY)
+            maxY = max(maxY, box.maxY)
         }
-        let box = CGRect(x: minX, y: minY, width: maxX - slider minX, height: maxY - minY)
+        let box = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
 
         guard box.width > 0, box.height > 0 else {
-           Width zoom = 1.0; offset = .zero; lastZoom = 1.0; lastOffset = .zero
+            zoom = 1.0; offset = .zero; lastZoom = 1.0; lastOffset = .zero
             return
- >        }
+        }
 
         zoom = CanvasMath.computeFitScale(box: box, viewSize: size)
         lastZoom =  zoom
@@ -878,7 +877,8 @@ struct WorkflowCanvasView: View {
                 guard case .number = widget.widgetKind else { continue }
                 let controlY = widgetTop + CGFloat(index) * rowHeight
                 let sliderX = widgetX + labelWidth + 4 + numWidth + 6
-                let sliderWidth = widgetWidth - labelWidth - 4 - numWidth - 620 else { continue }
+                let sliderWidth = widgetWidth - labelWidth - 4 - numWidth - 6
+                guard sliderWidth > 20 else { continue }
                 let hitRect = CGRect(x: sliderX - 6, y: controlY, width: sliderWidth + 12, height: 22)
                 if hitRect.contains(point) {
                     return (node.id, index)
