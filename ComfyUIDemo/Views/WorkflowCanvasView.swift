@@ -172,8 +172,8 @@ struct WorkflowCanvasView: View {
             // 节点边框（画布坐标系固定线宽，随缩放自然变化）
             context.stroke(shape.path(in: rect), with: .color(.teal), lineWidth: 2)
 
-            // 节点标题栏（顶部色带，高度占节点30%且不低于32）
-            let headerHeight = max(32, rect.height * 0.3)
+            // 节点标题栏（固定高度30，不超过节点高度的40%）
+            let headerHeight = min(30, rect.height * 0.4)
             let headerRect = CGRect(
                 x: rect.minX,
                 y: rect.minY,
@@ -185,9 +185,9 @@ struct WorkflowCanvasView: View {
 
             // 节点标题文本（画布坐标系固定字号，随缩放自然变化）
             let titleText = Text(node.displayTitle)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.white)
-            context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 4))
+            context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
 
             // 节点类型文本（标题下方）
             let typeRect = CGRect(
@@ -251,8 +251,8 @@ struct WorkflowCanvasView: View {
     /// - Returns: 插槽中心点坐标
     private func getSlotPosition(node: NodeModel, slotIndex: Int, isOutput: Bool) -> CGPoint {
         let rect = CGRect(origin: node.position, size: node.nodeSize)
-        let headerHeight = max(32, rect.height * 0.3)
-        let slotAreaTop = rect.minY + headerHeight + 10
+        let headerHeight = min(30, rect.height * 0.4)
+        let slotAreaTop = rect.minY + headerHeight + 8
         let slotGap: CGFloat = 20
         let y = slotAreaTop + CGFloat(slotIndex) * slotGap
 
