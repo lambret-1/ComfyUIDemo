@@ -11,7 +11,7 @@ struct WorkflowCanvasView: View {
     @State private var zoom: CGFloat = 1.0
     /// 上一次手势结束时的平移偏移
     @State private var lastOffset: CGPoint = .zero
-    /// 上一次手势结束时的缩放比例
+    /// 上一次手势结束时的缩
     @State private var lastZoom: CGFloat = 1.0
     /// 当前选中的节点ID
     @State private var selectedNodeId: Int?
@@ -44,6 +44,12 @@ struct WorkflowCanvasView: View {
     /// 拖动开始时手指的位置（世界坐标）
     @State private var dragStartTouchPos: CGPoint?
 
+    // MARK: - 手势区分状态（点击 vs 拖动）
+    /// 本次手势是否真正移动过（用于区分点击与拖动）
+    @State private var gestureDidMove: Bool = false
+    /// 本次手势的起始屏幕坐标
+    @State private var gestureStartLocation: CGPoint?
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottomTrailing) {
@@ -68,19 +74,16 @@ struct WorkflowCanvasView: View {
 
                     // 层级2.5：连线预览（正在连线时）
                     if isConnecting, let fromPoint = connectingFromPoint, let toPoint = connectingTo {
-                        // 如果有被吸附的输入插槽，终点自动吸附到该插槽
                         var actualToPoint = toPoint
                         if let snapped = snappedInputSlot,
                            let snappedNode = workflow.nodeMap[snapped.nodeId] {
                             actualToPoint = getSlotPosition(node: snappedNode, slotIndex: snapped.slotIndex, isOutput: false)
-                            // 高亮显示被吸附的输入插槽
                             var highlightCircle = Path()
                             highlightCircle.addEllipse(in: CGRect(x: actualToPoint.x - 10, y: actualToPoint.y - 10, width: 20, height: 20))
                             context.fill(highlightCircle, with: .color(.green.opacity(0.5)))
                         }
                         let previewPath = bezierLinkPath(from: fromPoint, to: actualToPoint)
                         context.stroke(previewPath, with: .color(.blue.opacity(0.7)), style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
-                        // 绘制终点圆点
                         var endCircle = Path()
                         endCircle.addEllipse(in: CGRect(x: actualToPoint.x - 6, y: actualToPoint.y - 6, width: 12, height: 12))
                         context.fill(endCircle, with: .color(snappedInputSlot != nil ? .green : .blue))
@@ -91,99 +94,12 @@ struct WorkflowCanvasView: View {
                 }
                 .gesture(
                     SimultaneousGesture(
-                        DragGesture()
+                        DragGesture(minimumDistance: 0)
                             .onChanged { value in
-                                // 计算真正的起点位置：value.location - value.translation（解决startLocation不准确的问题）
-                                let rawStartX = value.location.x - value.translation.width
-                                let rawStartY = value.location.y - value.translation.height
-                                let startWorldX = (rawStartX - offset.x) / zoom
-                                let startWorldY = (rawStartY - offset.y) / zoom
-                                let startPoint = CGPoint(x: startWorldX, y: startWorldY)
-
-                                // 计算当前世界坐标
-                                let currentWorldX = (value.location.x - offset.x) / zoom
-                                let currentWorldY = (value.location.y - offset.y) / zoom
-                                let currentPoint = CGPoint(x: currentWorldX, y: currentWorldY)
-
-                                // 正在连线时，更新预览线终点并检测吸附
-                                if isConnecting {
-                                    connectingTo = currentPoint
-                                    snappedInputSlot = findNearestInputSlot(point: currentPoint, maxDistance: 40)
-                                    return
-                                }
-
-                                // 正在拖动节点时，更新节点位置
-                                if let nodeId = draggingNodeId,
-                                   let startPos = dragStartNodePos,
-                                   let startTouch = dragStartTouchPos {
-                                    let deltaX = currentPoint.x - startTouch.x
-                                    let deltaY = currentPoint.y - startTouch.y
-                                    moveNode(id: nodeId, to: CGPoint(x: startPos.x + deltaX, y: startPos.y + deltaY))
-                                    return
-                                }
-
-                                // 检查是否起点在输出插槽（开始连线）
-                                if let outputSlot = hitTestOutputSlot(point: startPoint) {
-                                    isConnecting = true
-                                    connectingFrom = outputSlot
-                                    connectingFromPoint = getSlotPosition(
-                                        node: workflow.nodeMap[outputSlot.nodeId]!,
-                                        slotIndex: outputSlot.slotIndex,
-                                        isOutput: true
-                                    )
-                                    connectingTo = currentPoint
-                                    snappedInputSlot = nil
-                                    return
-                                }
-
-                                // 滑块拖动（只要起点在滑块区域）
-                                if let slider = hitTestSlider(point: startPoint) {
-                                    updateSliderValue(nodeId: slider.nodeId, index: slider.index, worldX: currentPoint.x)
-                                    return
-                                }
-
-                                // 检查是否起点在节点的可拖动区域
-                                if let node = hitTestNodeDraggableArea(point: startPoint) {
-                                    draggingNodeId = node.id
-                                    dragStartNodePos = node.position
-                                    dragStartTouchPos = startPoint
-                                    return
-                                }
-
-                                // 起点不在节点/滑块/插槽区域 → 平移画布
-                                offset = CGPoint(
-                                    x: lastOffset.x + value.translation.width,
-                                    y: lastOffset.y + value.translation.height
-                                )
+                                handleDragChanged(value)
                             }
                             .onEnded { value in
-                                // 正在连线时，检查是否有被吸附的输入插槽或命中输入插槽
-                                if isConnecting {
-                                    let currentWorldX = (value.location.x - offset.x) / zoom
-                                    let currentWorldY = (value.location.y - offset.y) / zoom
-                                    let endPoint = CGPoint(x: currentWorldX, y: currentWorldY)
-                                    if let targetSlot = snappedInputSlot ?? hitTestInputSlot(point: endPoint),
-                                       let from = connectingFrom {
-                                        createLink(from: from, to: targetSlot)
-                                    }
-                                    isConnecting = false
-                                    connectingFrom = nil
-                                    connectingFromPoint = nil
-                                    connectingTo = nil
-                                    snappedInputSlot = nil
-                                    return
-                                }
-
-                                // 结束节点拖动
-                                if draggingNodeId != nil {
-                                    draggingNodeId = nil
-                                    dragStartNodePos = nil
-                                    dragStartTouchPos = nil
-                                    return
-                                }
-
-                                // 画布平移结束，更新lastOffset
-                                lastOffset = offset
+                                handleDragEnded(value)
                             },
                         MagnificationGesture()
                             .onChanged { value in
@@ -198,83 +114,6 @@ struct WorkflowCanvasView: View {
                             }
                     )
                 )
-                .onTapGesture { location in
-                    let worldX = (location.x - offset.x) / zoom
-                    let worldY = (location.y - offset.y) / zoom
-                    let worldPoint = CGPoint(x: worldX, y: worldY)
-
-                    // 点击输出插槽时不做处理（连线由DragGesture处理）
-                    if hitTestOutputSlot(point: worldPoint) != nil {
-                        return
-                    }
-
-                    // 查找点击的节点
-                    var hitNode: NodeModel?
-                    for node in workflow.nodes {
-                        let rect = CGRect(origin: node.position, size: node.nodeSize)
-                        if rect.contains(worldPoint) {
-                            hitNode = node
-                            break
-                        }
-                    }
-
-                    guard let node = hitNode else {
-                        // 点击画布空白区域 → 不做处理
-                        return
-                    }
-
-                    let rect = CGRect(origin: node.position, size: node.nodeSize)
-                    let headerHeight = min(30, rect.height * 0.4)
-
-                    // 1. 右上角双圈圆点 → 弹出详情页
-                    let infoButtonSize: CGFloat = 24
-                    let infoButtonX = rect.maxX - infoButtonSize - 3
-                    let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
-                    let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
-                    if infoButtonRect.contains(worldPoint) {
-                        selectedNodeId = node.id
-                        return
-                    }
-
-                    // 2. 计算控件区域（与drawNodes一致的动态边距）
-                    let widgetTop = rect.minY + headerHeight + 6
-                    let widgetBottom = rect.maxY - 20
-                    let baseLeftInset: CGFloat = 75
-                    let baseRightInset: CGFloat = 85
-                    let minWidgetWidth: CGFloat = 60
-                    var leftInset = baseLeftInset
-                    var rightInset = baseRightInset
-                    if rect.width - leftInset - rightInset < minWidgetWidth {
-                        let available = rect.width - minWidgetWidth
-                        let totalInset = baseLeftInset + baseRightInset
-                        let scale = min(1.0, available / totalInset)
-                        leftInset = baseLeftInset * scale
-                        rightInset = baseRightInset * scale
-                    }
-                    let widgetX = rect.minX + leftInset
-                    let widgetWidth = rect.width - leftInset - rightInset
-                    let widgetRect = CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
-
-                    let isInWidgetArea = widgetRect.contains(worldPoint)
-                    let hasWidgets = (node.widgetsValues?.count ?? 0) > 0
-
-                    if isInWidgetArea && hasWidgets {
-                        // 点击控件区域 → 直接编辑参数（无需选中节点）
-                        let rowHeight: CGFloat = 22
-                        let relativeY = worldPoint.y - widgetTop
-                        let index = Int(relativeY / rowHeight)
-                        guard index >= 0, index < (node.widgetsValues?.count ?? 0) else { return }
-                        let widget = node.widgetsValues![index]
-                        if case .toggle = widget.widgetKind {
-                            toggleWidget(nodeId: node.id, index: index)
-                        } else {
-                            editingWidget = (node.id, index)
-                            editingText = widget.displayString
-                            showWidgetEditor = true
-                        }
-                    }
-                    // 点击节点空白区域 → 不做处理
-                }
                 .sheet(item: Binding(
                     get: { selectedNodeId.map { NodeIDWrapper(id: $0) } },
                     set: { selectedNodeId = $0?.id }
@@ -289,7 +128,6 @@ struct WorkflowCanvasView: View {
                         editingWidget = nil
                     }
                     Button("保存") {
-                        // 先获取editingWidget，再清空，避免alert关闭时editingWidget被置nil
                         let target = editingWidget
                         editingWidget = nil
                         if let target = target {
@@ -331,7 +169,6 @@ struct WorkflowCanvasView: View {
                     zoom: zoom,
                     viewSize: geometry.size,
                     onTap: { worldPoint in
-                        // 点击小地图跳转：使点击点居中
                         offset = CGPoint(
                             x: geometry.size.width / 2 - worldPoint.x * zoom,
                             y: geometry.size.height / 2 - worldPoint.y * zoom
@@ -339,7 +176,6 @@ struct WorkflowCanvasView: View {
                         lastOffset = offset
                     },
                     onDrag: { worldPoint in
-                        // 拖拽小地图实时平移
                         offset = CGPoint(
                             x: geometry.size.width / 2 - worldPoint.x * zoom,
                             y: geometry.size.height / 2 - worldPoint.y * zoom
@@ -353,6 +189,198 @@ struct WorkflowCanvasView: View {
         .background(Color(.systemBackground))
     }
 
+    // MARK: - 手势处理（拖动手势统一入口）
+
+    /// 拖动手势进行中：区分"点击 / 拖动"，并驱动节点拖动、连线、滑块、画布平移
+    private func handleDragChanged(_ value: DragGesture.Value) {
+        // 首次触发时记录起点，重置移动标记
+        if gestureStartLocation == nil {
+            gestureStartLocation = value.location
+            gestureDidMove = false
+        }
+        // 移动超过 3pt 就算真拖动
+        if abs(value.translation.width) > 3 || abs(value.translation.height) > 3 {
+            gestureDidMove = true
+        }
+
+        let rawStartX = value.location.x - value.translation.width
+        let rawStartY = value.location.y - value.translation.height
+        let startWorldX = (rawStartX - offset.x) / zoom
+        let startWorldY = (rawStartY - offset.y) / zoom
+        let startPoint = CGPoint(x: startWorldX, y: startWorldY)
+
+        let currentWorldX = (value.location.x - offset.x) / zoom
+        let currentWorldY = (value.location.y - offset.y) / zoom
+        let currentPoint = CGPoint(x: currentWorldX, y: currentWorldY)
+
+        // 正在连线时，更新预览线终点并检测吸附
+        if isConnecting {
+            connectingTo = currentPoint
+            snappedInputSlot = findNearestInputSlot(point: currentPoint, maxDistance: 40)
+            return
+        }
+
+        // 正在拖动节点时，更新节点位置
+        if let nodeId = draggingNodeId,
+           let startPos = dragStartNodePos,
+           let startTouch = dragStartTouchPos {
+            let deltaX = currentPoint.x - startTouch.x
+            let deltaY = currentPoint.y - startTouch.y
+            moveNode(id: nodeId, to: CGPoint(x: startPos.x + deltaX, y: startPos.y + deltaY))
+            return
+        }
+
+        // 只有真正移动过才进入"开始连线 / 滑块 / 拖动节点 / 画布平移"分支
+        // 否则纯点击会误触这些入口
+        guard gestureDidMove else { return }
+
+        // 检查是否起点在输出插槽（开始连线）
+        if let outputSlot = hitTestOutputSlot(point: startPoint) {
+            isConnecting = true
+            connectingFrom = outputSlot
+            if let node = workflow.nodeMap[outputSlot.nodeId] {
+                connectingFromPoint = getSlotPosition(
+                    node: node,
+                    slotIndex: outputSlot.slotIndex,
+                    isOutput: true
+                )
+            }
+            connectingTo = currentPoint
+            snappedInputSlot = nil
+            return
+        }
+
+        // 滑块拖动（只要起点在滑块区域）
+        if let slider = hitTestSlider(point: startPoint) {
+            updateSliderValue(nodeId: slider.nodeId, index: slider.index, worldX: currentPoint.x)
+            return
+        }
+
+        // 检查是否起点在节点的可拖动区域
+        if let node = hitTestNodeDraggableArea(point: startPoint) {
+            draggingNodeId = node.id
+            dragStartNodePos = node.position
+            dragStartTouchPos = startPoint
+            return
+        }
+
+        // 起点不在节点/滑块/插槽区域 → 平移画布
+        offset = CGPoint(
+            x: lastOffset.x + value.translation.width,
+            y: lastOffset.y + value.translation.height
+        )
+    }
+
+    /// 拖动手势结束：收尾连线/节点拖动/画布平移；若未移动则视为点击
+    private func handleDragEnded(_ value: DragGesture.Value) {
+        if isConnecting {
+            let currentWorldX = (value.location.x - offset.x) / zoom
+            let currentWorldY = (value.location.y - offset.y) / zoom
+            let endPoint = CGPoint(x: currentWorldX, y: currentWorldY)
+            if let targetSlot = snappedInputSlot ?? hitTestInputSlot(point: endPoint),
+               let from = connectingFrom {
+                createLink(from: from, to: targetSlot)
+            }
+            isConnecting = false
+            connectingFrom = nil
+            connectingFromPoint = nil
+            connectingTo = nil
+            snappedInputSlot = nil
+        } else if draggingNodeId != nil {
+            draggingNodeId = nil
+            dragStartNodePos = nil
+            dragStartTouchPos = nil
+        } else {
+            lastOffset = offset
+        }
+
+        // 未移动 → 视为点击，走点击处理逻辑
+        if !gestureDidMove, let tapLocation = gestureStartLocation {
+            handleTap(at: tapLocation)
+        }
+
+        // 重置手势状态
+        gestureStartLocation = nil
+        gestureDidMove = false
+    }
+
+    /// 点击处理（原 onTapGesture 的内容）
+    private func handleTap(at screenLocation: CGPoint) {
+        let worldX = (screenLocation.x - offset.x) / zoom
+        let worldY = (screenLocation.y - offset.y) / zoom
+        let worldPoint = CGPoint(x: worldX, y: worldY)
+
+        // 点击输出插槽时不做处理（连线由拖动手势处理）
+        if hitTestOutputSlot(point: worldPoint) != nil {
+            return
+        }
+
+        // 查找点击的节点
+        var hitNode: NodeModel?
+        for node in workflow.nodes {
+            let rect = CGRect(origin: node.position, size: node.nodeSize)
+            if rect.contains(worldPoint) {
+                hitNode = node
+                break
+            }
+        }
+
+        guard let node = hitNode else {
+            // 点击画布空白区域 → 不做处理
+            return
+        }
+
+        let rect = CGRect(origin: node.position, size: node.nodeSize)
+        let headerHeight = min(30, rect.height * 0.4)
+
+        // 1. 右上角双圈圆点 → 弹出详情页（与绘制尺寸保持一致：18 + 6）
+        let infoButtonSize: CGFloat = 18
+        let infoButtonX = rect.maxX - infoButtonSize - 6
+        let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
+        let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
+        if infoButtonRect.contains(worldPoint) {
+            selectedNodeId = node.id
+            return
+        }
+
+        // 2. 计算控件区域（与 drawNodes 保持一致的动态边距）
+        let widgetTop = rect.minY + headerHeight + 6
+        let widgetBottom = rect.maxY - 20
+        let baseLeftInset: CGFloat = 75
+        let baseRightInset: CGFloat = 85
+        let minWidgetWidth: CGFloat = 60
+        var leftInset = baseLeftInset
+        var rightInset = baseRightInset
+        if rect.width - leftInset - rightInset < minWidgetWidth {
+            let available = rect.width - minWidgetWidth
+            let totalInset = baseLeftInset + baseRightInset
+            let scale = min(1.0, available / totalInset)
+            leftInset = baseLeftInset * scale
+            rightInset = baseRightInset * scale
+        }
+        let widgetX = rect.minX + leftInset
+        let widgetWidth = rect.width - leftInset - rightInset
+        let widgetRect = CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
+
+        let isInWidgetArea = widgetRect.contains(worldPoint)
+        let hasWidgets = (node.widgetsValues?.count ?? 0) > 0
+
+        if isInWidgetArea && hasWidgets {
+            let rowHeight: CGFloat = 22
+            let relativeY = worldPoint.y - widgetTop
+            let index = Int(relativeY / rowHeight)
+            guard index >= 0, index < (node.widgetsValues?.count ?? 0) else { return }
+            let widget = node.widgetsValues![index]
+            if case .toggle = widget.widgetKind {
+                toggleWidget(nodeId: node.id, index: index)
+            } else {
+                editingWidget = (node.id, index)
+                editingText = widget.displayString
+                showWidgetEditor = true
+            }
+        }
+    }
+
     // MARK: - 分组绘制
 
     /// 绘制分组背景框与标题（最底层，ComfyUI风格）
@@ -362,12 +390,9 @@ struct WorkflowCanvasView: View {
             guard rect.width > 0, rect.height > 0 else { continue }
 
             let shape = RoundedRectangle(cornerRadius: 12)
-            // 分组半透明背景
             context.fill(shape.path(in: rect), with: .color(group.groupColor))
-            // 分组边框
             context.stroke(shape.path(in: rect), with: .color(group.borderColor), lineWidth: 2)
 
-            // 分组标题背景条（顶部矩形）
             let titleBgRect = CGRect(
                 x: rect.minX,
                 y: rect.minY,
@@ -376,7 +401,6 @@ struct WorkflowCanvasView: View {
             )
             context.fill(Path(titleBgRect), with: .color(group.borderColor.opacity(0.25)))
 
-            // 分组标题文字
             let titleText = Text(group.title)
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(group.borderColor)
@@ -418,12 +442,11 @@ struct WorkflowCanvasView: View {
         }
     }
 
-    /// 生成两点间的三次贝塞尔曲线路径（动态控制点，基于水平距离，避免绕大圈）
+    /// 生成两点间的三次贝塞尔曲线路径
     private func bezierLinkPath(from: CGPoint, to: CGPoint) -> Path {
         Path { path in
             path.move(to: from)
             let dx = to.x - from.x
-            // 动态偏移：基于水平距离，下限30，上限150
             let offset = min(150.0, max(30.0, abs(dx) * 0.5))
             path.addCurve(
                 to: to,
@@ -441,52 +464,45 @@ struct WorkflowCanvasView: View {
             let rect = CGRect(origin: node.position, size: node.nodeSize)
             let shape = RoundedRectangle(cornerRadius: 8)
 
-            // 高亮节点发光效果（搜索定位）
             if highlightedId == node.id {
                 context.fill(shape.path(in: rect.insetBy(dx: -6, dy: -6)), with: .color(.yellow.opacity(0.4)))
             }
 
-            // 正在拖动节点的阴影效果
             if draggingNodeId == node.id {
-                context.fill(shape.path(in: rect.insetBy(dx: -4, dy: -4)), with: .color(.black.opacity(0.2)))
+                context.fill(shape.path(in: rect.insetBy(dx: -4, dy: -4)), with: .color(.black.opacity(0. header2)))
             }
 
             context.fill(shape.path(in: rect), with: .color(node.bodyColor))
-            context.stroke(shape.path(in: rect), with: .color(node.headerColor), lineWidth: 2)
+            context.stroke(shape.path(in: rect), with: .colorRect(node.headerColor), line.Width: 2)
 
-            let headerHeight = min(30, rect.height * 0.4)
+            let headerHeight = min(30, rect.height * 0.4ins)
             let headerRect = CGRect(
                 x: rect.minX,
                 y: rect.minY,
                 width: rect.width,
-                height: headerHeight
+                height: headeretHeight
             )
             context.fill(shape.path(in: headerRect), with: .color(node.headerColor))
 
-            let titleText = Text(node.displayTitle)
+            let titleByText = Text(node.displayTitle)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.white)
-            context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
+            context.draw(titleText, in:(dx: 8, dy: 6))
 
-            // 右上角双圈圆点（详情页入口）
+            // 右上角双圈圆点（详情页入口）——与 handleTap 的命中测试保持一致：18 + 6
             let infoButtonSize: CGFloat = 18
             let infoButtonX = rect.maxX - infoButtonSize - 6
             let infoButtonY = headerRect.midY - infoButtonSize / 2
             let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
-            // 外圈
             context.stroke(Path(ellipseIn: infoButtonRect), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
-            // 内圈
             let innerInset: CGFloat = 4
             context.stroke(Path(ellipseIn: infoButtonRect.insetBy(dx: innerInset, dy: innerInset)), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
 
-            // 控件区域（居中，避开左右两侧插槽标签区域）
-            // 边距根据节点宽度动态调整，确保窄节点也有控件显示空间
+            // 控件区域
             let widgetTop = headerRect.maxY + 6
             let widgetBottom = rect.maxY - 20
-            // 基础边距：左侧输入插槽标签+圆点，右侧输出插槽标签+圆点
             let baseLeftInset: CGFloat = 75
             let baseRightInset: CGFloat = 85
-            // 节点较窄时按比例压缩边距，确保控件区域最小宽度60pt
             let minWidgetWidth: CGFloat = 60
             var leftInset = baseLeftInset
             var rightInset = baseRightInset
@@ -508,7 +524,6 @@ struct WorkflowCanvasView: View {
                 )
             }
 
-            // 节点类型文字（底部）
             let typeLabelHeight: CGFloat = 16
             let typeRect = CGRect(
                 x: rect.minX,
@@ -527,7 +542,7 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 控件绘制
 
-    /// 绘制节点内部控件（只读展示，参数名与控件同一行显示，文本单行截断，全部展示不折叠）
+    /// 绘制节点内部控件
     private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], names: [String], in rect: CGRect) {
         let controlHeight: CGFloat = 16
         let rowSpacing: CGFloat = 6
@@ -537,10 +552,8 @@ struct WorkflowCanvasView: View {
         var currentY = rect.minY
 
         for (index, widget) in widgets.enumerated() {
-            // 固定行高，文本单行显示不换行
             let totalRowHeight = controlHeight + rowSpacing
 
-            // 参数名标签（左侧，固定宽度，右对齐，与控件垂直居中）
             let rawName = index < names.count ? names[index] : "参数\(index + 1)"
             let paramName = SlotLocalization.localized(for: rawName)
             let displayName = truncatedText(paramName, font: labelFont, maxWidth: labelWidth - 4)
@@ -550,7 +563,6 @@ struct WorkflowCanvasView: View {
             let labelCenterY = currentY + controlHeight / 2
             context.draw(labelText, at: CGPoint(x: rect.minX + labelWidth - 2, y: labelCenterY), anchor: .trailing)
 
-            // 控件区域（右侧，剩余宽度）
             let controlX = rect.minX + labelWidth + 4
             let controlWidth = rect.width - labelWidth - 4
             let controlY = currentY
@@ -570,7 +582,6 @@ struct WorkflowCanvasView: View {
                 context.draw(statusText, at: CGPoint(x: toggleRect.maxX + 4, y: controlY + 8), anchor: .leading)
 
             case .number:
-                // 数字框 + 迷你滑块条
                 let numWidth: CGFloat = 48
                 let numRect = CGRect(x: controlX, y: controlY, width: numWidth, height: controlHeight)
                 let numShape = RoundedRectangle(cornerRadius: 4)
@@ -581,14 +592,12 @@ struct WorkflowCanvasView: View {
                     .foregroundColor(.primary)
                 context.draw(numText, in: numRect.insetBy(dx: 4, dy: 1))
 
-                // 迷你滑块条（可拖动交互，旋钮位置根据数值比例显示）
                 let sliderX = numRect.maxX + 6
                 let sliderWidth = max(0, controlWidth - numWidth - 6)
                 if sliderWidth > 20 {
                     let sliderRect = CGRect(x: sliderX, y: controlY + 6, width: sliderWidth, height: 4)
                     context.fill(Path(roundedRect: sliderRect, cornerSize: CGSize(width: 2, height: 2)),
                                with: .color(.gray.opacity(0.25)))
-                    // 根据数值计算旋钮位置（范围0-100）
                     let numericValue: Double
                     switch widget {
                     case .int(let v): numericValue = Double(v)
@@ -609,7 +618,6 @@ struct WorkflowCanvasView: View {
                 context.fill(textShape.path(in: textRect), with: .color(Color(.tertiarySystemBackground)))
                 context.stroke(textShape.path(in: textRect), with: .color(.gray.opacity(0.3)), lineWidth: 0.5)
 
-                // 文本单行显示，超出截断（预留箭头空间）
                 let textMaxWidth = isShortEnum ? controlWidth - 16 : controlWidth - 8
                 let displayText = truncatedText(text, font: valueFont, maxWidth: textMaxWidth)
                 let textView = Text(displayText)
@@ -618,7 +626,6 @@ struct WorkflowCanvasView: View {
                 context.draw(textView, in: textRect.insetBy(dx: 4, dy: 2))
 
                 if isShortEnum {
-                    // 短文本：显示下拉箭头（模拟下拉菜单外观）
                     let arrowX = textRect.maxX - 12
                     let arrowPath = Path { p in
                         p.move(to: CGPoint(x: arrowX, y: controlY + 5))
@@ -640,7 +647,6 @@ struct WorkflowCanvasView: View {
         let dotSize: CGFloat = 10
         let labelFont = UIFont.systemFont(ofSize: 9)
 
-        // 输出插槽（节点右侧）：圆点在右边缘，标签在圆点左侧（节点内部右侧），右对齐，最大宽度70pt
         if let outputs = node.outputs {
             for (index, slot) in outputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: true)
@@ -667,7 +673,6 @@ struct WorkflowCanvasView: View {
             }
         }
 
-        // 输入插槽（节点左侧）：圆点在左边缘，标签在圆点右侧（节点内部左侧），左对齐，最大宽度60pt
         if let inputs = node.inputs {
             for (index, slot) in inputs.enumerated() {
                 let point = getSlotPosition(node: node, slotIndex: index, isOutput: false)
@@ -695,13 +700,12 @@ struct WorkflowCanvasView: View {
         }
     }
 
-    /// 文本截断：超过最大宽度时显示省略号
+    /// 文本截断
     private func truncatedText(_ text: String, font: UIFont, maxWidth: CGFloat) -> String {
         let nsText = text as NSString
         let attributes: [NSAttributedString.Key: Any] = [.font: font]
         let textWidth = nsText.size(withAttributes: attributes).width
         if textWidth <= maxWidth { return text }
-        // 逐步截断直到符合宽度
         var result = text
         while result.count > 1 {
             result = String(result.dropLast())
@@ -759,22 +763,23 @@ struct WorkflowCanvasView: View {
         var minX = CGFloat.greatestFiniteMagnitude
         var minY = CGFloat.greatestFiniteMagnitude
         var maxX = -CGFloat.greatestFiniteMagnitude
-        var maxY = -CGFloat.greatestFiniteMagnitude
+        var maxY =
+ -CGFloat.greatestFiniteMagnitude
         for box in allBoxes {
             minX = min(minX, box.minX)
-            minY = min(minY, box.minY)
+            minY = min               (minY, box.minY)
             maxX = max(maxX, box.maxX)
-            maxY = max(maxY, box.maxY)
+            maxY = max(maxY, box guard.maxY)
         }
-        let box = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        let box = CGRect(x: minX, y: minY, width: maxX - slider minX, height: maxY - minY)
 
         guard box.width > 0, box.height > 0 else {
-            zoom = 1.0; offset = .zero; lastZoom = 1.0; lastOffset = .zero
+           Width zoom = 1.0; offset = .zero; lastZoom = 1.0; lastOffset = .zero
             return
-        }
+ >        }
 
         zoom = CanvasMath.computeFitScale(box: box, viewSize: size)
-        lastZoom = zoom
+        lastZoom =  zoom
         offset = CGPoint(
             x: size.width / 2 - (box.midX * zoom),
             y: size.height / 2 - (box.midY * zoom)
@@ -793,7 +798,6 @@ struct WorkflowCanvasView: View {
         )
         lastOffset = offset
         highlightedNodeId = nodeId
-        // 3秒后取消高亮
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             if highlightedNodeId == nodeId { highlightedNodeId = nil }
         }
@@ -814,7 +818,7 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 节点拖动
 
-    /// 命中测试：判断点击位置是否在节点的可拖动区域（节点上但不在输出插槽、详情按钮；控件区域也可拖动，点击由onTapGesture处理）
+    /// 命中测试：判断点击位置是否在节点的可拖动区域
     private func hitTestNodeDraggableArea(point: CGPoint) -> NodeModel? {
         for node in workflow.nodes {
             let rect = CGRect(origin: node.position, size: node.nodeSize)
@@ -822,9 +826,9 @@ struct WorkflowCanvasView: View {
 
             let headerHeight = min(30, rect.height * 0.4)
 
-            // 排除右上角详情按钮区域
-            let infoButtonSize: CGFloat = 24
-            let infoButtonX = rect.maxX - infoButtonSize - 3
+            // 排除右上角详情按钮区域（与绘制尺寸保持一致：18 + 6）
+            let infoButtonSize: CGFloat = 18
+            let infoButtonX = rect.maxX - infoButtonSize - 6
             let infoButtonY = rect.minY + headerHeight / 2 - infoButtonSize / 2
             let infoButtonRect = CGRect(x: infoButtonX, y: infoButtonY, width: infoButtonSize, height: infoButtonSize)
             if infoButtonRect.contains(point) { continue }
@@ -832,7 +836,6 @@ struct WorkflowCanvasView: View {
             // 排除输出插槽区域（右侧边缘）
             if hitTestOutputSlot(point: point) != nil { continue }
 
-            // 在节点上但不在排除区域 → 可拖动（控件区域也可拖动，点击编辑由onTapGesture处理）
             return node
         }
         return nil
@@ -841,19 +844,17 @@ struct WorkflowCanvasView: View {
     /// 移动节点到指定位置（世界坐标）
     private func moveNode(id: Int, to position: CGPoint) {
         guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == id }) else { return }
-        // 使用临时变量修改后重新赋值整个node对象，确保SwiftUI检测到变化并更新视图
         var node = workflow.nodes[nodeIndex]
         node.pos = [Double(position.x), Double(position.y)]
         workflow.nodes[nodeIndex] = node
     }
 
-    /// 命中测试：判断点击位置是否在滑块区域，返回滑块信息
+    /// 命中测试：判断点击位置是否在滑块区域
     private func hitTestSlider(point: CGPoint) -> (nodeId: Int, index: Int)? {
         for node in workflow.nodes {
             let rect = CGRect(origin: node.position, size: node.nodeSize)
             let headerHeight = min(30, rect.height * 0.4)
             let widgetTop = rect.minY + headerHeight + 6
-            // 与drawNodes一致的动态边距计算
             let baseLeftInset: CGFloat = 75
             let baseRightInset: CGFloat = 85
             let minWidgetWidth: CGFloat = 60
@@ -877,10 +878,8 @@ struct WorkflowCanvasView: View {
                 guard case .number = widget.widgetKind else { continue }
                 let controlY = widgetTop + CGFloat(index) * rowHeight
                 let sliderX = widgetX + labelWidth + 4 + numWidth + 6
-                let sliderWidth = widgetWidth - labelWidth - 4 - numWidth - 6
-                guard sliderWidth > 20 else { continue }
-                // 扩大点击区域
-                let hitRect = CGRect(x: sliderX - 6, y: controlY, width: sliderWidth + 12, height: 16)
+                let sliderWidth = widgetWidth - labelWidth - 4 - numWidth - 620 else { continue }
+                let hitRect = CGRect(x: sliderX - 6, y: controlY, width: sliderWidth + 12, height: 22)
                 if hitRect.contains(point) {
                     return (node.id, index)
                 }
@@ -891,9 +890,9 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 插槽命中测试
 
-    /// 命中测试：判断点击位置是否在输出插槽上，返回节点ID和插槽索引
+    /// 命中测试：判断点击位置是否在输出插槽上
     private func hitTestOutputSlot(point: CGPoint) -> (nodeId: Int, slotIndex: Int)? {
-        let hitRadius: CGFloat = 12 // 扩大点击区域
+        let hitRadius: CGFloat = 12
         for node in workflow.nodes {
             guard let outputs = node.outputs, !outputs.isEmpty else { continue }
             for (index, _) in outputs.enumerated() {
@@ -907,9 +906,9 @@ struct WorkflowCanvasView: View {
         return nil
     }
 
-    /// 命中测试：判断点击位置是否在输入插槽上，返回节点ID和插槽索引
+    /// 命中测试：判断点击位置是否在输入插槽上
     private func hitTestInputSlot(point: CGPoint) -> (nodeId: Int, slotIndex: Int)? {
-        let hitRadius: CGFloat = 20 // 扩大点击区域
+        let hitRadius: CGFloat = 20
         for node in workflow.nodes {
             guard let inputs = node.inputs, !inputs.isEmpty else { continue }
             for (index, _) in inputs.enumerated() {
@@ -945,16 +944,11 @@ struct WorkflowCanvasView: View {
 
     /// 创建连线：从源节点输出插槽到目标节点输入插槽
     private func createLink(from: (nodeId: Int, slotIndex: Int), to: (nodeId: Int, slotIndex: Int)) {
-        // 不能连接到自己
         guard from.nodeId != to.nodeId else { return }
 
-        // 生成唯一连线ID
         let newLinkId = (workflow.links.map { $0.id }.max() ?? 0) + 1
-
-        // 获取源插槽的数据类型
         let sourceType = workflow.nodeMap[from.nodeId]?.outputs?[safe: from.slotIndex]?.type
 
-        // 创建连线
         let newLink = LinkModel(
             id: newLinkId,
             sourceId: from.nodeId,
@@ -964,11 +958,10 @@ struct WorkflowCanvasView: View {
             linkType: sourceType
         )
 
-        // 添加到工作流
         workflow.links.append(newLink)
     }
 
-    /// 根据世界坐标X更新滑块数值（范围0-100，根据滑块位置比例计算）
+    /// 根据世界坐标X更新滑块数值（范围0-100）
     private func updateSliderValue(nodeId: Int, index: Int, worldX: CGFloat) {
         guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
         var node = workflow.nodes[nodeIndex]
@@ -976,7 +969,6 @@ struct WorkflowCanvasView: View {
         let rect = CGRect(origin: node.position, size: node.nodeSize)
         let headerHeight = min(30, rect.height * 0.4)
         let widgetTop = rect.minY + headerHeight + 6
-        // 与drawNodes一致的动态边距计算
         let baseLeftInset: CGFloat = 75
         let baseRightInset: CGFloat = 85
         let minWidgetWidth: CGFloat = 60
@@ -997,10 +989,8 @@ struct WorkflowCanvasView: View {
         let sliderWidth = widgetWidth - labelWidth - 4 - numWidth - 6
         guard sliderWidth > 0 else { return }
 
-        // 计算比例0-1
         var ratio = (worldX - sliderX) / sliderWidth
         ratio = max(0, min(1, ratio))
-        // 数值范围0-100，取一位小数
         let newValue = Double(round(ratio * 1000) / 10)
 
         let original = widgets[index]
@@ -1014,15 +1004,16 @@ struct WorkflowCanvasView: View {
         }
         node.widgetsValues = widgets
         workflow.nodes[nodeIndex] = node
+        // 抑制未使用变量警告（widgetTop 保留以便未来扩展，实际用不到可删）
+        _ = widgetTop
     }
 
-    /// 保存单参数编辑结果（严格保持原始值类型，避免类型转换导致显示异常）
+    /// 保存单参数编辑结果
     private func saveEditedWidget(nodeId: Int, index: Int, text: String) {
         guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
         var node = workflow.nodes[nodeIndex]
         guard var widgets = node.widgetsValues, index < widgets.count else { return }
         let original = widgets[index]
-        // 根据原始值的精确类型保存，严格保持类型一致
         switch original {
         case .int:
             if let intValue = Int(text) {
