@@ -113,17 +113,31 @@ struct NodeModel: Codable, Identifiable, Hashable {
         title?.isEmpty == false ? title! : type
     }
 
-    /// 控件参数名列表（优先从inputs.widget提取，其次用已知节点预设映射，最后用序号）
+    /// 控件参数名列表（优先从inputs.widget提取纯控件参数，其次用已知节点预设映射，最后用序号）
     var widgetNames: [String] {
         let widgetCount = widgetsValues?.count ?? 0
         guard widgetCount > 0 else { return [] }
 
-        // 1. 从 inputs 中提取有 widget 索引的 input，按 widget 索引排序后取 name
+        // 常见输入插槽类型名（这些是连接输入，不是纯控件参数，跳过避免错位）
+        let slotTypeNames: Set<String> = [
+            "model", "clip", "vae", "conditioning", "latent", "samples",
+            "image", "images", "video", "videos", "audio", "audios",
+            "ref_images", "ref_videos", "ref_video_audios", "ref_audios",
+            "plan_json", "context_latent", "latent_tail", "prev_latent_tail",
+            "segment_index", "video_latent", "audio_latent", "video_vae", "audio_vae",
+            "pixels", "mask", "positive", "negative", "control_net", "style_model",
+            "gligen", "upscale_model", "data", "tensor", "frame"
+        ]
+
+        // 1. 从 inputs 中提取有 widget 索引且非插槽类型名的 input，按 widget 索引排序后取 name
         if let inputs = inputs {
             let widgetInputs = inputs.compactMap { slot -> (index: Int, name: String)? in
                 guard let widgetIndex = slot.widgetIndex,
                       let name = slot.name,
                       widgetIndex >= 0 && widgetIndex < widgetCount else { return nil }
+                // 跳过纯连接输入类型（这些name是插槽名，不是控件参数名）
+                let lowerName = name.lowercased()
+                guard !slotTypeNames.contains(lowerName) else { return nil }
                 return (widgetIndex, name)
             }
             if !widgetInputs.isEmpty {
