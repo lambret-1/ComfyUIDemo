@@ -84,12 +84,8 @@ struct WorkflowCanvasView: View {
             .sheet(item: $selectedNode) { node in
                 NodeDetailSheet(node: node)
             }
-            .overlay(alignment: .topTrailing) {
-                Button("重置视角") {
-                    fitToView(size: geometry.size)
-                }
-                .buttonStyle(.borderedProminent)
-                .padding(8)
+            .onReceive(NotificationCenter.default.publisher(for: .resetCanvasView)) { _ in
+                fitToView(size: geometry.size)
             }
             .onAppear {
                 // 首次出现时自动适配视图

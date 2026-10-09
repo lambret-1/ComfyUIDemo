@@ -37,6 +37,7 @@ ComfyUIDemo/
 ├── Models/
 │   └── WorkflowModel.swift       # 工作流/节点/插槽/连线数据模型
 ├── Views/
+│   ├── WorkflowCanvasPage.swift  # 独立画布页面（导航栏 + 返回 + 重置）
 │   ├── WorkflowCanvasView.swift  # 画布视图（核心渲染 + 手势）
 │   ├── JsonImportView.swift      # JSON 导入/编辑页面
 │   └── NodeDetailSheet.swift     # 节点详情弹窗
