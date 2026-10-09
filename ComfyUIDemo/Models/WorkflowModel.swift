@@ -87,7 +87,7 @@ struct NodeModel: Codable, Identifiable, Hashable {
     /// 节点类型名称
     let type: String
     /// 节点在画布中的位置 [x, y]
-    let pos: [Double]
+    var pos: [Double]
     /// 节点尺寸 [width, height]
     let size: [Double]
     /// 输入插槽列表
