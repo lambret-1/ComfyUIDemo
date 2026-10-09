@@ -160,6 +160,8 @@ struct JsonImportView: View {
         }
 
         errorMessage = nil
+        // 保存为上次工作流，方便主页快速打开
+        WorkflowStore.saveLastWorkflow(json: trimmed, name: "导入的工作流")
         onLoad(workflow)
     }
 

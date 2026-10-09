@@ -119,13 +119,14 @@ struct NodeDetailSheet: View {
         .padding(.vertical, 4)
     }
 
-    /// 更新指定索引的控件值
+    /// 更新指定索引的控件值（确保值类型正确写回）
     private func updateWidget(index: Int, value: WidgetValue) {
-        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }),
-              var widgets = workflow.nodes[nodeIndex].widgetsValues,
-              index < widgets.count else { return }
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
+        var node = workflow.nodes[nodeIndex]
+        guard var widgets = node.widgetsValues, index < widgets.count else { return }
         widgets[index] = value
-        workflow.nodes[nodeIndex].widgetsValues = widgets
+        node.widgetsValues = widgets
+        workflow.nodes[nodeIndex] = node
     }
 
     // MARK: - 插槽页

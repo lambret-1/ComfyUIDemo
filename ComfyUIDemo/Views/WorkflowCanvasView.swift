@@ -3,8 +3,8 @@ import SwiftUI
 /// 工作流画布视图：使用 SwiftUI Canvas 高性能渲染分组、连线、节点与控件
 /// 支持双指缩放、单指拖拽、节点点击查看详情、重置视角
 struct WorkflowCanvasView: View {
-    /// 工作流数据（可编辑，支持弹窗修改参数后同步画布）
-    @State var workflow: WorkflowModel
+    /// 工作流数据绑定（支持弹窗修改参数后同步画布与父视图）
+    @Binding var workflow: WorkflowModel
     /// 当前平移偏移
     @State private var offset: CGPoint = .zero
     /// 当前缩放比例
