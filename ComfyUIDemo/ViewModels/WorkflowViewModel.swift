@@ -115,11 +115,13 @@ final class WorkflowViewModel: ObservableObject {
             width: screenDelta.width / viewport.scale,
             height: screenDelta.height / viewport.scale
         )
-        // position是计算属性，需要修改底层pos数组
-        if workflow.nodes[index].pos.count >= 2 {
-            workflow.nodes[index].pos[0] += worldDelta.width
-            workflow.nodes[index].pos[1] += worldDelta.height
+        // pos是let常量，需要复制节点修改后赋值回数组
+        var node = workflow.nodes[index]
+        if node.pos.count >= 2 {
+            node.pos[0] += worldDelta.width
+            node.pos[1] += worldDelta.height
         }
+        workflow.nodes[index] = node
     }
 
     /// 更新控件值（直接修改workflow，确保触发视图更新）
