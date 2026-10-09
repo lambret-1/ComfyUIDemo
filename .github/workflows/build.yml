@@ -40,15 +40,22 @@ jobs:
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER=""
 
-      - name: 手动打包未签名 IPA
+      - name: 读取版本号
+        id: version
         run: |
-          # 未签名归档无法使用 exportArchive，手动从 xcarchive 提取 .app 并打包为 IPA
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" ComfyUIDemo/Info.plist)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "当前版本: $VERSION"
+
+      - name: 手动打包未签名 IPA（带版本号）
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
           mkdir -p ./output/Payload
           cp -R ./build/ComfyUIDemo.xcarchive/Products/Applications/ComfyUIDemo.app ./output/Payload/
           cd ./output
-          zip -qr ComfyUIDemo.ipa Payload
+          zip -qr "ComfyUIDemo-v${VERSION}.ipa" Payload
           cd ..
-          ls -lh ./output/ComfyUIDemo.ipa
+          ls -lh ./output/ComfyUIDemo-v${VERSION}.ipa
 
       - name: 验证 IPA 产物
         run: |
@@ -58,16 +65,9 @@ jobs:
       - name: 上传 IPA 产物
         uses: actions/upload-artifact@v4
         with:
-          name: ComfyUIDemo-unsigned
+          name: ComfyUIDemo-unsigned-v${{ steps.version.outputs.version }}
           path: ./output/*.ipa
           retention-days: 30
-
-      - name: 读取版本号
-        id: version
-        run: |
-          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" ComfyUIDemo/Info.plist)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "当前版本: $VERSION"
 
       - name: 创建 GitHub Release 并上传 IPA
         uses: softprops/action-gh-release@v2
@@ -80,10 +80,10 @@ jobs:
             未签名 IPA，适用于 TrollStore 侧载安装。
 
             ### 安装方式
-            1. 下载下方 `ComfyUIDemo.ipa`
+            1. 下载下方 `ComfyUIDemo-v${{ steps.version.outputs.version }}.ipa`
             2. 在 TrollStore 中选择「Install IPA」
             3. 选择下载的 IPA 文件完成安装
-          files: ./output/ComfyUIDemo.ipa
+          files: ./output/ComfyUIDemo-v${{ steps.version.outputs.version }}.ipa
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

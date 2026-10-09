@@ -623,28 +623,17 @@ enum SlotTypeColor {
 // MARK: - 控件参数名注册表
 
 /// 常见节点类型的控件参数名映射表（当JSON中未提供widget信息时使用）
+/// 注意：只包含经过验证的参数名映射，不确定的节点统一用"参数N"避免错位
 enum WidgetNameRegistry {
     /// 根据节点类型返回参数名列表
     static func names(for nodeType: String) -> [String]? {
         let lower = nodeType.lowercased()
-        // MiniMax H3 Ref2VA 分段采样器（已验证参数顺序）
-        if lower.contains("segmentedsampler") && lower.contains("ref2va") {
-            return [
-                "ref2va", "steps", "cfg", "sampler_name", "scheduler",
-                "seed", "segment_count", "context_length", "denoise",
-                "width", "height", "batch_size"
-            ]
-        }
-        // MiniMax H3 上下文循环接力
-        if lower.contains("contextloop") || lower.contains("context_loop") {
-            return ["latent_tail", "steps", "cfg", "denoise", "loop_count"]
-        }
-        // 采样器类
-        if lower.contains("ksampler") || lower.contains("sampler") {
+        // 标准 KSampler 系列（已验证）
+        if lower.contains("ksampler") {
             return ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"]
         }
-        // 加载器类
-        if lower.contains("checkpoint") {
+        // 标准加载器（已验证）
+        if lower.contains("checkpoint") && lower.contains("load") {
             return ["ckpt_name"]
         }
         if lower.contains("vae") && lower.contains("load") {
@@ -656,37 +645,31 @@ enum WidgetNameRegistry {
         if lower.contains("image") && lower.contains("load") {
             return ["image"]
         }
-        // 文本编码类
-        if lower.contains("cliptextencode") || lower.contains("textencode") {
+        // 文本编码（已验证，参数名为text）
+        if lower.contains("textencode") || lower.contains("text_encode") {
             return ["text"]
         }
-        // 潜空间类
+        // 标准潜空间（已验证）
         if lower.contains("emptylatent") {
             return ["width", "height", "batch_size"]
         }
-        // 保存类
+        // 标准保存（已验证）
         if lower.contains("saveimage") {
             return ["filename_prefix"]
         }
-        // 视频/音频加载器
+        // 视频/音频加载器（已验证）
         if lower.contains("videoloader") || lower.contains("video_loader") {
             return ["video", "frame_start", "frame_count"]
         }
         if lower.contains("audioloader") || lower.contains("audio_loader") {
             return ["audio"]
         }
-        // 脚本规划类
+        // 脚本规划类（已验证）
         if lower.contains("scriptplanner") || lower.contains("script_planner") {
             return ["prompt", "max_segments", "duration"]
         }
-        // Ref2VA 条件构建器
-        if lower.contains("ref2vaconditioning") || lower.contains("ref2va_conditioning") {
-            return ["ref_images", "ref_videos", "ref_video_audios", "ref_audios", "plan_json", "clip"]
-        }
-        // DiT 模型加载器
-        if lower.contains("dit") && lower.contains("model") && lower.contains("load") {
-            return ["model_name"]
-        }
+        // 注意：Ref2VAConditioning、ContextLoop、DiTModelLoader、SegmentedSampler 等自定义节点
+        // 的参数顺序未经验证，不使用预设映射，统一用"参数N"避免错位
         return nil
     }
 }
