@@ -50,6 +50,13 @@ struct WorkflowModel: Codable {
             groups = []
         }
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(nodes, forKey: .nodes)
+        try container.encode(links, forKey: .links)
+        try container.encode(groups, forKey: .groups)
+    }
 }
 
 /// 安全解码包装器：单个元素解码失败时返回nil而不是抛出
@@ -160,6 +167,20 @@ struct NodeModel: Codable, Identifiable, Hashable {
         }
     }
 
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(type, forKey: .type)
+        try container.encode(pos, forKey: .pos)
+        try container.encode(size, forKey: .size)
+        try container.encodeIfPresent(inputs, forKey: .inputs)
+        try container.encodeIfPresent(outputs, forKey: .outputs)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(widgetsValues, forKey: .widgetsValues)
+        try container.encodeIfPresent(colorHex, forKey: .colorHex)
+        try container.encodeIfPresent(titleColorHex, forKey: .titleColorHex)
+    }
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
@@ -193,6 +214,14 @@ struct SlotModel: Codable, Hashable {
         type = try? container.decodeIfPresent(String.self, forKey: .type)
         slotIndex = try? container.decodeIfPresent(Int.self, forKey: .slotIndex)
         links = try? container.decodeIfPresent([Int].self, forKey: .links)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(type, forKey: .type)
+        try container.encodeIfPresent(slotIndex, forKey: .slotIndex)
+        try container.encodeIfPresent(links, forKey: .links)
     }
 }
 
@@ -294,6 +323,14 @@ struct GroupModel: Codable, Identifiable, Hashable {
         bounding = (try? container.decode([Double].self, forKey: .bounding)) ?? [0, 0, 200, 200]
         colorHex = try? container.decodeIfPresent(String.self, forKey: .color)
         fontSize = try? container.decodeIfPresent(Int.self, forKey: .fontSize)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(title, forKey: .title)
+        try container.encode(bounding, forKey: .bounding)
+        try container.encodeIfPresent(colorHex, forKey: .color)
+        try container.encodeIfPresent(fontSize, forKey: .fontSize)
     }
 }
 
