@@ -689,12 +689,6 @@ enum WidgetNameRegistry {
         }
         return nil
     }
-        // 条件构建类
-        if lower.contains("conditioning") && lower.contains("ref2va") {
-            return ["ref2va", "strength", "threshold"]
-        }
-        return nil
-    }
 }
 
 // MARK: - Color Hex 扩展
