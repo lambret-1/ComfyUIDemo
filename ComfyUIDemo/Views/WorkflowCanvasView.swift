@@ -189,19 +189,7 @@ struct WorkflowCanvasView: View {
                 .foregroundColor(.white)
             context.draw(titleText, in: headerRect.insetBy(dx: 8, dy: 6))
 
-            // 节点类型文本（标题下方）
-            let typeRect = CGRect(
-                x: rect.minX,
-                y: headerRect.maxY,
-                width: rect.width,
-                height: rect.height - headerHeight
-            )
-            let typeText = Text(node.type)
-                .font(.system(size: 11))
-                .foregroundColor(.primary)
-            context.draw(typeText, in: typeRect.insetBy(dx: 8, dy: 6))
-
-            // 绘制插槽圆点
+            // 绘制插槽圆点及名称（ComfyUI原生风格：主体不显示type，仅标题+插槽）
             drawSlots(context: context, node: node)
         }
     }
