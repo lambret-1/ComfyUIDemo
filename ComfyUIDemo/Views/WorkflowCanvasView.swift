@@ -49,6 +49,21 @@ struct WorkflowCanvasView: View {
     @State var gestureDidMove: Bool = false
     /// 本次手势的起始屏幕坐标
     @State var gestureStartLocation: CGPoint?
+    /// 当前拖动模式（首次移动超阈值时锁定，避免每帧重新判断导致抖动）
+    @State var dragMode: DragMode = .none
+
+    // MARK: - 拖动模式枚举
+    /// 拖动意图模式：首次移动超过3pt时根据起点+方向一次性决定，之后锁定
+    enum DragMode {
+        /// 尚未决定（移动未超阈值）
+        case none
+        /// 拖动节点
+        case node
+        /// 拖动滑块（水平拖动number控件）
+        case slider
+        /// 平移画布
+        case canvas
+    }
 
     var body: some View {
         GeometryReader { geometry in

@@ -5,11 +5,14 @@ import SwiftUI
 extension WorkflowCanvasView {
 
     /// 拖动手势进行中：区分"点击 / 拖动"，并驱动节点拖动、连线、滑块、画布平移
+    /// 核心机制：首次移动超3pt时根据起点+方向一次性锁定 dragMode，后续帧不再重新判断，
+    /// 避免滑块命中区域拦截节点拖动、以及每帧切换意图导致的抖动。
     func handleDragChanged(_ value: DragGesture.Value) {
-        // 首次触发时记录起点，重置移动标记
+        // 首次触发时记录起点，重置移动标记和拖动模式
         if gestureStartLocation == nil {
             gestureStartLocation = value.location
             gestureDidMove = false
+            dragMode = .none
         }
         // 移动超过 3pt 就算真拖动
         if abs(value.translation.width) > 3 || abs(value.translation.height) > 3 {
@@ -43,45 +46,72 @@ extension WorkflowCanvasView {
             return
         }
 
-        // 只有真正移动过才进入"开始连线 / 滑块 / 拖动节点 / 画布平移"分支
-        // 否则纯点击会误触这些入口
-        guard gestureDidMove else { return }
-
-        // 检查是否起点在输出插槽（开始连线）
-        if let outputSlot = hitTestOutputSlot(point: startPoint) {
-            isConnecting = true
-            connectingFrom = outputSlot
-            if let node = workflow.nodeMap[outputSlot.nodeId] {
-                connectingFromPoint = getSlotPosition(
-                    node: node,
-                    slotIndex: outputSlot.slotIndex,
-                    isOutput: true
-                )
-            }
-            connectingTo = currentPoint
-            snappedInputSlot = nil
-            return
-        }
-
-        // 滑块拖动（只要起点在滑块区域）
-        if let slider = hitTestSlider(point: startPoint) {
+        // 正在拖动滑块时，直接更新滑块值（模式已锁定，不再重新命中）
+        if dragMode == .slider, let slider = hitTestSlider(point: startPoint) {
             updateSliderValue(nodeId: slider.nodeId, index: slider.index, worldX: currentPoint.x)
             return
         }
 
-        // 检查是否起点在节点的可拖动区域
-        if let node = hitTestNodeDraggableArea(point: startPoint) {
-            draggingNodeId = node.id
-            dragStartNodePos = node.position
-            dragStartTouchPos = startPoint
-            return
+        // 只有真正移动过才进入模式决定分支
+        // 否则纯点击会误触这些入口
+        guard gestureDidMove else { return }
+
+        // 首次移动超阈值：一次性锁定拖动模式
+        if dragMode == .none {
+            // 检查是否起点在输出插槽（开始连线）
+            if hitTestOutputSlot(point: startPoint) != nil {
+                if let outputSlot = hitTestOutputSlot(point: startPoint) {
+                    isConnecting = true
+                    connectingFrom = outputSlot
+                    if let node = workflow.nodeMap[outputSlot.nodeId] {
+                        connectingFromPoint = getSlotPosition(
+                            node: node,
+                            slotIndex: outputSlot.slotIndex,
+                            isOutput: true
+                        )
+                    }
+                    connectingTo = currentPoint
+                    snappedInputSlot = nil
+                }
+                return
+            }
+
+            // 节点拖动优先：起点在节点可拖动区域即进入节点拖动模式
+            // （包含控件区域，解决"节点内容区不能自由拖动"问题）
+            if let node = hitTestNodeDraggableArea(point: startPoint) {
+                // 例外：起点在滑块区域 且 水平拖动明显大于垂直拖动 → 滑块模式
+                let isHorizontal = abs(value.translation.width) > abs(value.translation.height) * 1.5
+                if isHorizontal, hitTestSlider(point: startPoint) != nil {
+                    dragMode = .slider
+                } else {
+                    dragMode = .node
+                    draggingNodeId = node.id
+                    dragStartNodePos = node.position
+                    dragStartTouchPos = startPoint
+                }
+            } else {
+                // 起点不在节点区域 → 画布平移模式
+                dragMode = .canvas
+            }
         }
 
-        // 起点不在节点/滑块/插槽区域 → 平移画布
-        offset = CGPoint(
-            x: lastOffset.x + value.translation.width,
-            y: lastOffset.y + value.translation.height
-        )
+        // 根据锁定的模式执行对应操作
+        switch dragMode {
+        case .node:
+            // 节点拖动已在上方 draggingNodeId 分支处理，这里不会到达
+            break
+        case .slider:
+            if let slider = hitTestSlider(point: startPoint) {
+                updateSliderValue(nodeId: slider.nodeId, index: slider.index, worldX: currentPoint.x)
+            }
+        case .canvas:
+            offset = CGPoint(
+                x: lastOffset.x + value.translation.width,
+                y: lastOffset.y + value.translation.height
+            )
+        case .none:
+            break
+        }
     }
 
     /// 拖动手势结束：收尾连线/节点拖动/画布平移；若未移动则视为点击
@@ -115,6 +145,7 @@ extension WorkflowCanvasView {
         // 重置手势状态
         gestureStartLocation = nil
         gestureDidMove = false
+        dragMode = .none
     }
 
     /// 点击处理（原 onTapGesture 的内容）
