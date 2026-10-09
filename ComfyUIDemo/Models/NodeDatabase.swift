@@ -370,6 +370,276 @@ enum MiniMaxH3NodeDatabase {
                                         defaultValue: "30", minValue: 1, maxValue: 600, step: 1)
             ],
             description: "将长提示词自动分段规划，生成多段视频的拍摄计划"
+        ),
+
+        // MARK: 条件构建类（补充）
+
+        /// 图生视频条件构建器
+        "MiniMaxH3ImageToVideo": NodeDefinition(
+            type: "MiniMaxH3ImageToVideo",
+            displayName: "图生视频条件构建",
+            category: .conditioning,
+            colorHex: "#CA8A04",
+            inputs: [
+                NodeSlotDefinition(name: "image", displayName: "图像", type: "IMAGE"),
+                NodeSlotDefinition(name: "clip", displayName: "文本编码", type: "CLIP"),
+                NodeSlotDefinition(name: "vae", displayName: "VAE", type: "VAE", optional: true)
+            ],
+            outputs: [
+                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING"),
+                NodeSlotDefinition(name: "latent", displayName: "潜空间", type: "LATENT")
+            ],
+            parameters: [
+                NodeParameterDefinition(name: "prompt", displayName: "提示词", type: .string),
+                NodeParameterDefinition(name: "negative_prompt", displayName: "负向提示词", type: .string),
+                NodeParameterDefinition(name: "width", displayName: "宽度", type: .integer,
+                                        defaultValue: "1344", minValue: 256, maxValue: 4096, step: 16),
+                NodeParameterDefinition(name: "height", displayName: "高度", type: .integer,
+                                        defaultValue: "768", minValue: 256, maxValue: 4096, step: 16),
+                NodeParameterDefinition(name: "num_frames", displayName: "帧数", type: .integer,
+                                        defaultValue: "81", minValue: 1, maxValue: 1000, step: 1)
+            ],
+            description: "基于首帧图像生成视频条件"
+        ),
+
+        /// 参考生视频条件构建器
+        "MiniMaxH3ReferenceToVideo": NodeDefinition(
+            type: "MiniMaxH3ReferenceToVideo",
+            displayName: "参考生视频条件构建",
+            category: .conditioning,
+            colorHex: "#CA8A04",
+            inputs: [
+                NodeSlotDefinition(name: "ref_image", displayName: "参考图片", type: "IMAGE"),
+                NodeSlotDefinition(name: "ref_video", displayName: "参考视频", type: "VIDEO", optional: true),
+                NodeSlotDefinition(name: "clip", displayName: "文本编码", type: "CLIP")
+            ],
+            outputs: [
+                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING")
+            ],
+            parameters: [
+                NodeParameterDefinition(name: "prompt", displayName: "提示词", type: .string),
+                NodeParameterDefinition(name: "ref_strength", displayName: "参考强度", type: .float,
+                                        defaultValue: "0.8", minValue: 0, maxValue: 1, step: 0.05),
+                NodeParameterDefinition(name: "motion_strength", displayName: "运动强度", type: .float,
+                                        defaultValue: "0.5", minValue: 0, maxValue: 1, step: 0.05)
+            ],
+            description: "基于参考图片/视频生成视频条件"
+        ),
+
+        /// 文生视频条件构建器
+        "MiniMaxH3TextToVideo": NodeDefinition(
+            type: "MiniMaxH3TextToVideo",
+            displayName: "文生视频条件构建",
+            category: .conditioning,
+            colorHex: "#CA8A04",
+            inputs: [
+                NodeSlotDefinition(name: "clip", displayName: "文本编码", type: "CLIP")
+            ],
+            outputs: [
+                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING"),
+                NodeSlotDefinition(name: "latent", displayName: "潜空间", type: "LATENT")
+            ],
+            parameters: [
+                NodeParameterDefinition(name: "prompt", displayName: "提示词", type: .string),
+                NodeParameterDefinition(name: "negative_prompt", displayName: "负向提示词", type: .string),
+                NodeParameterDefinition(name: "width", displayName: "宽度", type: .integer,
+                                        defaultValue: "1344", minValue: 256, maxValue: 4096, step: 16),
+                NodeParameterDefinition(name: "height", displayName: "高度", type: .integer,
+                                        defaultValue: "768", minValue: 256, maxValue: 4096, step: 16),
+                NodeParameterDefinition(name: "num_frames", displayName: "帧数", type: .integer,
+                                        defaultValue: "81", minValue: 1, maxValue: 1000, step: 1)
+            ],
+            description: "纯文本生成视频条件"
+        ),
+
+        /// 添加引导条件
+        "MiniMaxH3AddGuide": NodeDefinition(
+            type: "MiniMaxH3AddGuide",
+            displayName: "添加引导条件",
+            category: .conditioning,
+            colorHex: "#CA8A04",
+            inputs: [
+                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING"),
+                NodeSlotDefinition(name: "guide", displayName: "引导", type: "GUIDE")
+            ],
+            outputs: [
+                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING")
+            ],
+            parameters: [
+                NodeParameterDefinition(name: "guide_strength", displayName: "引导强度", type: .float,
+                                        defaultValue: "1.0", minValue: 0, maxValue: 2, step: 0.1),
+                NodeParameterDefinition(name: "guide_start", displayName: "引导起始", type: .float,
+                                        defaultValue: "0.0", minValue: 0, maxValue: 1, step: 0.01),
+                NodeParameterDefinition(name: "guide_end", displayName: "引导结束", type: .float,
+                                        defaultValue: "1.0", minValue: 0, maxValue: 1, step: 0.01)
+            ],
+            description: "向条件中添加引导信号"
+        ),
+
+        // MARK: 采样器类（补充）
+
+        /// Sigma偏移采样器
+        "MiniMaxH3SigmaShift": NodeDefinition(
+            type: "MiniMaxH3SigmaShift",
+            displayName: "Sigma偏移采样器",
+            category: .sampler,
+            colorHex: "#B91C1C",
+            inputs: [
+                NodeSlotDefinition(name: "model", displayName: "模型", type: "MODEL"),
+                NodeSlotDefinition(name: "conditioning", displayName: "条件", type: "CONDITIONING"),
+                NodeSlotDefinition(name: "latent_image", displayName: "潜空间", type: "LATENT")
+            ],
+            outputs: [
+                NodeSlotDefinition(name: "latent", displayName: "潜空间", type: "LATENT")
+            ],
+            parameters: [
+                NodeParameterDefinition(name: "seed", displayName: "种子", type: .integer,
+                                        defaultValue: "-1", minValue: -1, maxValue: 4294967294, step: 1),
+                NodeParameterDefinition(name: "steps", displayName: "步数", type: .integer,
+                                        defaultValue: "30", minValue: 1, maxValue: 100, step: 1),
+                NodeParameterDefinition(name: "cfg", displayName: "引导系数", type: .float,
+                                        defaultValue: "6.0", minValue: 1, maxValue: 30, step: 0.5),
+                NodeParameterDefinition(name: "sampler_name", displayName: "采样器", type: .enumeration,
+                                        defaultValue: "euler", options: ["euler", "dpmpp_2m", "dpmpp_sde", "heun", "ddim"]),
+                NodeParameterDefinition(name: "scheduler", displayName: "调度器", type: .enumeration,
+                                        defaultValue: "normal", options: ["normal", "karras", "exponential", "sgm_uniform"]),
+                NodeParameterDefinition(name: "denoise", displayName: "去噪强度", type: .float,
+                                        defaultValue: "1.0", minValue: 0, maxValue: 1, step: 0.01),
+                NodeParameterDefinition(name: "sigma_shift", displayName: "Sigma偏移", type: .float,
+                                        defaultValue: "1.0", minValue: 0.1, maxValue: 10, step: 0.1)
+            ],
+            description: "支持Sigma偏移的高级采样器"
+        ),
+
+        // MARK: 处理类（补充）
+
+        /// 音视频解码器
+        "MiniMaxH3DecodeAV": NodeDefinition(
+            type: "MiniMaxH3DecodeAV",
+            displayName: "音视频解码器",
+            category: .processing,
+            colorHex: "#0F766E",
+            inputs: [
+                NodeSlotDefinition(name: "video_latent", displayName: "视频潜空间", type: "LATENT"),
+                NodeSlotDefinition(name: "audio_latent", displayName: "音频潜空间", type: "LATENT", optional: true),
+                NodeSlotDefinition(name: "video_vae", displayName: "视频VAE", type: "VAE"),
+                NodeSlotDefinition(name: "audio_vae", displayName: "音频VAE", type: "VAE", optional: true)
+            ],
+            outputs: [
+                NodeSlotDefinition(name: "video", displayName: "视频", type: "VIDEO"),
+                NodeSlotDefinition(name: "audio", displayName: "音频", type: "AUDIO", optional: true)
+            ],
+            parameters: [
+                NodeParameterDefinition(name: "decode_video", displayName: "解码视频", type: .boolean, defaultValue: "true"),
+                NodeParameterDefinition(name: "decode_audio", displayName: "解码音频", type: .boolean, defaultValue: "true"),
+                NodeParameterDefinition(name: "fps", displayName: "帧率", type: .integer,
+                                        defaultValue: "24", minValue: 1, maxValue: 120, step: 1)
+            ],
+            description: "将视频和音频潜空间解码为可播放的音视频"
+        ),
+
+        /// 保存视频
+        "SaveVideo": NodeDefinition(
+            type: "SaveVideo",
+            displayName: "保存视频",
+            category: .processing,
+            colorHex: "#0F766E",
+            inputs: [
+                NodeSlotDefinition(name: "video", displayName: "视频", type: "VIDEO"),
+                NodeSlotDefinition(name: "audio", displayName: "音频", type: "AUDIO", optional: true)
+            ],
+            outputs: [],
+            parameters: [
+                NodeParameterDefinition(name: "filename_prefix", displayName: "文件名前缀", type: .string,
+                                        defaultValue: "MiniMaxH3/video"),
+                NodeParameterDefinition(name: "fps", displayName: "帧率", type: .integer,
+                                        defaultValue: "24", minValue: 1, maxValue: 120, step: 1),
+                NodeParameterDefinition(name: "format", displayName: "格式", type: .enumeration,
+                                        defaultValue: "mp4", options: ["mp4", "webm", "gif"]),
+                NodeParameterDefinition(name: "save_audio", displayName: "保存音频", type: .boolean, defaultValue: "true")
+            ],
+            description: "将视频保存到输出目录"
+        ),
+
+        // MARK: 加载器类（补充）
+
+        /// MiniMax H3 模型加载器
+        "MiniMaxH3ModelLoader": NodeDefinition(
+            type: "MiniMaxH3ModelLoader",
+            displayName: "MiniMax H3 模型加载",
+            category: .loader,
+            colorHex: "#2563EB",
+            inputs: [],
+            outputs: [
+                NodeSlotDefinition(name: "MODEL", displayName: "模型", type: "MODEL"),
+                NodeSlotDefinition(name: "CLIP", displayName: "文本编码", type: "CLIP"),
+                NodeSlotDefinition(name: "VAE", displayName: "VAE", type: "VAE")
+            ],
+            parameters: [
+                NodeParameterDefinition(name: "model_name", displayName: "模型文件名", type: .string,
+                                        defaultValue: "minimax_h3.safetensors"),
+                NodeParameterDefinition(name: "device", displayName: "运行设备", type: .enumeration,
+                                        defaultValue: "default", options: ["default", "cpu", "cuda"])
+            ],
+            description: "加载 MiniMax H3 完整模型（含DiT/CLIP/VAE）"
+        ),
+
+        /// 加载图片
+        "LoadImage": NodeDefinition(
+            type: "LoadImage",
+            displayName: "加载图片",
+            category: .loader,
+            colorHex: "#2563EB",
+            inputs: [],
+            outputs: [
+                NodeSlotDefinition(name: "IMAGE", displayName: "图像", type: "IMAGE"),
+                NodeSlotDefinition(name: "MASK", displayName: "遮罩", type: "MASK", optional: true)
+            ],
+            parameters: [
+                NodeParameterDefinition(name: "image", displayName: "图片", type: .string)
+            ],
+            description: "从输入目录加载图片"
+        ),
+
+        /// 加载视频
+        "LoadVideo": NodeDefinition(
+            type: "LoadVideo",
+            displayName: "加载视频",
+            category: .loader,
+            colorHex: "#2563EB",
+            inputs: [],
+            outputs: [
+                NodeSlotDefinition(name: "IMAGE", displayName: "图像组", type: "IMAGE"),
+                NodeSlotDefinition(name: "AUDIO", displayName: "音频", type: "AUDIO", optional: true)
+            ],
+            parameters: [
+                NodeParameterDefinition(name: "video", displayName: "视频", type: .string),
+                NodeParameterDefinition(name: "start_frame", displayName: "起始帧", type: .integer,
+                                        defaultValue: "0", minValue: 0, step: 1),
+                NodeParameterDefinition(name: "frame_load_cap", displayName: "加载帧数", type: .integer,
+                                        defaultValue: "16", minValue: 1, step: 1),
+                NodeParameterDefinition(name: "skip_first_frames", displayName: "跳过首帧", type: .integer,
+                                        defaultValue: "0", minValue: 0, step: 1),
+                NodeParameterDefinition(name: "select_every_nth", displayName: "抽帧间隔", type: .integer,
+                                        defaultValue: "1", minValue: 1, step: 1)
+            ],
+            description: "从输入目录加载视频（可抽帧）"
+        ),
+
+        /// 加载音频
+        "LoadAudio": NodeDefinition(
+            type: "LoadAudio",
+            displayName: "加载音频",
+            category: .loader,
+            colorHex: "#2563EB",
+            inputs: [],
+            outputs: [
+                NodeSlotDefinition(name: "AUDIO", displayName: "音频", type: "AUDIO")
+            ],
+            parameters: [
+                NodeParameterDefinition(name: "audio", displayName: "音频", type: .string)
+            ],
+            description: "从输入目录加载音频"
         )
     ]
 
