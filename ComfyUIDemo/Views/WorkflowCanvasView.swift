@@ -77,10 +77,11 @@ struct WorkflowCanvasView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottomTrailing) {
-                // 背景网格层（静态独立视图，不随节点拖动重绘）
+                // 背景网格层（静态独立视图，drawingGroup光栅化缓存，不随节点拖动重绘）
                 Canvas { context, size in
                     drawGrid(context: context, viewSize: size)
                 }
+                .drawingGroup()
                 // 主画布层（分组+连线+节点+控件，动态内容）
                 Canvas { context, size in
                     // 记录视图尺寸
