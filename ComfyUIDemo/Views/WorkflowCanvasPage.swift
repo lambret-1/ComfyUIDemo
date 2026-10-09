@@ -2,8 +2,8 @@ import SwiftUI
 
 /// 独立画布页面：全屏展示工作流，自带导航栏、返回、搜索、保存按钮
 struct WorkflowCanvasPage: View {
-    /// 工作流数据（可编辑，支持参数修改后保存）
-    @State var workflow: WorkflowModel
+    /// 工作流视图模型（MVVM架构，统一管理状态和业务逻辑）
+    @StateObject private var viewModel: WorkflowViewModel
     /// 关闭回调
     let onDismiss: () -> Void
     /// 环境关闭
@@ -15,9 +15,14 @@ struct WorkflowCanvasPage: View {
     /// 保存失败提示
     @State private var showSaveError: Bool = false
 
+    init(workflow: WorkflowModel, onDismiss: @escaping () -> Void) {
+        _viewModel = StateObject(wrappedValue: WorkflowViewModel(workflow: workflow))
+        self.onDismiss = onDismiss
+    }
+
     var body: some View {
         NavigationStack {
-            WorkflowCanvasView(workflow: $workflow)
+            WorkflowCanvasView(viewModel: viewModel)
                 .navigationTitle("工作流画布")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -56,7 +61,7 @@ struct WorkflowCanvasPage: View {
                     }
                 }
                 .fullScreenCover(isPresented: $showSearch) {
-                    NodeSearchPage(workflow: workflow) { nodeId in
+                    NodeSearchPage(workflow: viewModel.workflow) { nodeId in
                         showSearch = false
                         NotificationCenter.default.post(name: .focusNode, object: nodeId)
                     }
@@ -75,7 +80,7 @@ struct WorkflowCanvasPage: View {
     // MARK: - 保存工作流
 
     private func saveWorkflow() {
-        let success = WorkflowStore.saveWorkflowToDocuments(workflow, name: "workflow-\(workflow.nodes.count)nodes.json")
+        let success = WorkflowStore.saveWorkflowToDocuments(viewModel.workflow, name: "workflow-\(viewModel.workflow.nodes.count)nodes.json")
         if success {
             showSaveSuccess = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {

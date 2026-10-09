@@ -2,27 +2,27 @@ import SwiftUI
 
 /// 工作流画布视图：使用 SwiftUI Canvas 高性能渲染分组、连线、节点与控件
 /// 支持双指缩放、单指拖拽、节点点击查看详情、重置视角
+/// MVVM架构：状态和业务逻辑由WorkflowViewModel管理，本视图只负责渲染和手势转发
 struct WorkflowCanvasView: View {
-    /// 工作流数据绑定（支持弹窗修改参数后同步画布与父视图）
-    @Binding var workflow: WorkflowModel
-    /// 当前平移偏移
-    @State private var offset: CGPoint = .zero
-    /// 当前缩放比例
-    @State private var zoom: CGFloat = 1.0
-    /// 上一次手势结束时的平移偏移
-    @State private var lastOffset: CGPoint = .zero
-    /// 上一次手势结束时的缩放比例
-    @State private var lastZoom: CGFloat = 1.0
-    /// 当前选中的节点ID
+    /// 工作流视图模型（MVVM架构，统一管理状态和业务逻辑）
+    @ObservedObject var viewModel: WorkflowViewModel
+    /// 当前选中的节点ID（详情页）
     @State private var selectedNodeId: Int?
     /// 是否已经执行过初始适配
     @State private var hasFitted = false
     /// 当前视图尺寸
     @State private var viewSize: CGSize = .zero
-    /// 高亮节点ID（搜索定位时使用）
-    @State private var highlightedNodeId: Int?
-    /// 当前选中用于编辑的节点ID（点击节点空白区域选中，点击画布空白区域取消）
-    @State private var selectedNodeIdForEdit: Int?
+
+    /// 便捷访问：工作流数据
+    private var workflow: WorkflowModel { viewModel.workflow }
+    /// 便捷访问：视口偏移
+    private var offset: CGPoint { viewModel.viewport.offset }
+    /// 便捷访问：缩放比例
+    private var zoom: CGFloat { viewModel.viewport.scale }
+    /// 便捷访问：选中编辑的节点ID
+    private var selectedNodeIdForEdit: Int? { viewModel.selectedNodeID }
+    /// 便捷访问：高亮节点ID
+    private var highlightedNodeId: Int? { viewModel.highlightedNodeID }
 
     var body: some View {
         GeometryReader { geometry in
@@ -55,57 +55,39 @@ struct WorkflowCanvasView: View {
                             .onChanged { value in
                                 // 只有当节点被选中时，才允许滑块拖动编辑
                                 if selectedNodeIdForEdit != nil {
-                                    let startWorldX = (value.startLocation.x - offset.x) / zoom
-                                    let startWorldY = (value.startLocation.y - offset.y) / zoom
-                                    let startPoint = CGPoint(x: startWorldX, y: startWorldY)
-                                    if let slider = hitTestSlider(point: startPoint),
-                                       slider.nodeId == selectedNodeIdForEdit {
+                                    let startWorldPoint = viewModel.viewport.toWorld(value.startLocation)
+                                    if let slider = viewModel.hitTestSlider(worldPoint: startWorldPoint),
+                                       slider.nodeID == selectedNodeIdForEdit {
                                         // 选中节点的滑块拖动 → 更新参数
-                                        let currentWorldX = (value.location.x - offset.x) / zoom
-                                        updateSliderValue(nodeId: slider.nodeId, index: slider.index, worldX: currentWorldX)
+                                        let currentWorldX = viewModel.viewport.toWorld(value.location).x
+                                        viewModel.updateSliderValue(nodeID: slider.nodeID, index: slider.index, worldX: currentWorldX)
                                         return
                                     }
                                 }
                                 // 未选中节点或起点不在滑块区域 → 平移画布
-                                offset = CGPoint(
-                                    x: lastOffset.x + value.translation.width,
-                                    y: lastOffset.y + value.translation.height
-                                )
+                                viewModel.applyPan(translation: value.translation)
                             }
                             .onEnded { _ in
-                                lastOffset = offset
+                                viewModel.saveViewportState()
                             },
                         MagnificationGesture()
                             .onChanged { value in
-                                zoom = CanvasMath.clamp(
-                                    lastZoom * value,
-                                    min: CanvasMath.minZoom,
-                                    max: CanvasMath.maxZoom
-                                )
+                                viewModel.applyZoom(magnification: value)
                             }
                             .onEnded { _ in
-                                lastZoom = zoom
+                                viewModel.saveViewportState()
                             }
                     )
                 )
                 .onTapGesture { location in
-                    let worldX = (location.x - offset.x) / zoom
-                    let worldY = (location.y - offset.y) / zoom
-                    let worldPoint = CGPoint(x: worldX, y: worldY)
+                    let worldPoint = viewModel.viewport.toWorld(location)
 
                     // 查找点击的节点
-                    var hitNode: NodeModel?
-                    for node in workflow.nodes {
-                        let rect = CGRect(origin: node.position, size: node.nodeSize)
-                        if rect.contains(worldPoint) {
-                            hitNode = node
-                            break
-                        }
-                    }
+                    let hitNode = viewModel.nodeAt(worldPoint)
 
                     guard let node = hitNode else {
                         // 点击画布空白区域 → 取消选中状态
-                        selectedNodeIdForEdit = nil
+                        viewModel.selectNode(nil)
                         return
                     }
 
@@ -123,23 +105,7 @@ struct WorkflowCanvasView: View {
                     }
 
                     // 2. 计算控件区域（与drawNodes一致的动态边距）
-                    let widgetTop = rect.minY + headerHeight + 6
-                    let widgetBottom = rect.maxY - 20
-                    let baseLeftInset: CGFloat = 75
-                    let baseRightInset: CGFloat = 85
-                    let minWidgetWidth: CGFloat = 60
-                    var leftInset = baseLeftInset
-                    var rightInset = baseRightInset
-                    if rect.width - leftInset - rightInset < minWidgetWidth {
-                        let available = rect.width - minWidgetWidth
-                        let totalInset = baseLeftInset + baseRightInset
-                        let scale = min(1.0, available / totalInset)
-                        leftInset = baseLeftInset * scale
-                        rightInset = baseRightInset * scale
-                    }
-                    let widgetX = rect.minX + leftInset
-                    let widgetWidth = rect.width - leftInset - rightInset
-                    let widgetRect = CGRect(x: widgetX, y: widgetTop, width: widgetWidth, height: widgetBottom - widgetTop)
+                    let widgetRect = viewModel.widgetArea(for: node)
 
                     let isInWidgetArea = widgetRect.contains(worldPoint)
                     let hasWidgets = (node.widgetsValues?.count ?? 0) > 0
@@ -148,33 +114,33 @@ struct WorkflowCanvasView: View {
                         // 点击控件区域
                         if selectedNodeIdForEdit != node.id {
                             // 节点未选中 → 先选中节点（选中后overlay中的可交互控件会处理后续点击）
-                            selectedNodeIdForEdit = node.id
+                            viewModel.selectNode(node.id)
                         }
                         // 节点已选中 → 不做处理，让overlay中的TextField/Toggle/Slider直接响应
                     } else {
                         // 点击节点空白区域（header或控件区外）→ 选中节点
-                        selectedNodeIdForEdit = node.id
+                        viewModel.selectNode(node.id)
                     }
                 }
                 .sheet(item: Binding(
                     get: { selectedNodeId.map { NodeIDWrapper(id: $0) } },
                     set: { selectedNodeId = $0?.id }
                 )) { wrapper in
-                    NodeDetailSheet(workflow: $workflow, nodeId: wrapper.id)
+                    NodeDetailSheet(workflow: $viewModel.workflow, nodeId: wrapper.id)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .resetCanvasView)) { _ in
-                    fitToView(size: geometry.size)
+                    viewModel.fitToView(size: geometry.size)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .focusNode)) { notification in
                     if let nodeId = notification.object as? Int {
-                        focusOnNode(nodeId: nodeId, viewSize: geometry.size)
+                        viewModel.focusOnNode(nodeId, viewSize: geometry.size)
                     }
                 }
                 .onAppear {
                     if !hasFitted {
                         hasFitted = true
                         DispatchQueue.main.async {
-                            fitToView(size: geometry.size)
+                            viewModel.fitToView(size: geometry.size)
                         }
                     }
                 }
@@ -196,19 +162,21 @@ struct WorkflowCanvasView: View {
                     viewSize: geometry.size,
                     onTap: { worldPoint in
                         // 点击小地图跳转：使点击点居中
-                        offset = CGPoint(
+                        let newOffset = CGPoint(
                             x: geometry.size.width / 2 - worldPoint.x * zoom,
                             y: geometry.size.height / 2 - worldPoint.y * zoom
                         )
-                        lastOffset = offset
+                        viewModel.viewport.offset = newOffset
+                        viewModel.viewport.lastOffset = newOffset
                     },
                     onDrag: { worldPoint in
                         // 拖拽小地图实时平移
-                        offset = CGPoint(
+                        let newOffset = CGPoint(
                             x: geometry.size.width / 2 - worldPoint.x * zoom,
                             y: geometry.size.height / 2 - worldPoint.y * zoom
                         )
-                        lastOffset = offset
+                        viewModel.viewport.offset = newOffset
+                        viewModel.viewport.lastOffset = newOffset
                     }
                 )
                 .padding(12)
@@ -608,197 +576,6 @@ struct WorkflowCanvasView: View {
         context.stroke(path, with: .color(.gray.opacity(0.15)), lineWidth: 0.5)
     }
 
-    // MARK: - 视角适配
-
-    private func fitToView(size: CGSize) {
-        var allBoxes: [CGRect] = workflow.nodes.map {
-            CGRect(origin: $0.position, size: $0.nodeSize)
-        }
-        allBoxes.append(contentsOf: workflow.groups.map { $0.frame })
-
-        guard !allBoxes.isEmpty else {
-            zoom = 1.0; offset = .zero; lastZoom = 1.0; lastOffset = .zero
-            return
-        }
-
-        var minX = CGFloat.greatestFiniteMagnitude
-        var minY = CGFloat.greatestFiniteMagnitude
-        var maxX = -CGFloat.greatestFiniteMagnitude
-        var maxY = -CGFloat.greatestFiniteMagnitude
-        for box in allBoxes {
-            minX = min(minX, box.minX)
-            minY = min(minY, box.minY)
-            maxX = max(maxX, box.maxX)
-            maxY = max(maxY, box.maxY)
-        }
-        let box = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-
-        guard box.width > 0, box.height > 0 else {
-            zoom = 1.0; offset = .zero; lastZoom = 1.0; lastOffset = .zero
-            return
-        }
-
-        zoom = CanvasMath.computeFitScale(box: box, viewSize: size)
-        lastZoom = zoom
-        offset = CGPoint(
-            x: size.width / 2 - (box.midX * zoom),
-            y: size.height / 2 - (box.midY * zoom)
-        )
-        lastOffset = offset
-    }
-
-    /// 居中聚焦到指定节点并高亮
-    private func focusOnNode(nodeId: Int, viewSize: CGSize) {
-        guard let node = workflow.nodeMap[nodeId] else { return }
-        let center = CGPoint(x: node.position.x + node.nodeSize.width / 2,
-                             y: node.position.y + node.nodeSize.height / 2)
-        offset = CGPoint(
-            x: viewSize.width / 2 - center.x * zoom,
-            y: viewSize.height / 2 - center.y * zoom
-        )
-        lastOffset = offset
-        highlightedNodeId = nodeId
-        // 3秒后取消高亮
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            if highlightedNodeId == nodeId { highlightedNodeId = nil }
-        }
-    }
-
-    /// 切换开关控件的值（直接修改workflow，确保触发视图更新）
-    private func toggleWidget(nodeId: Int, index: Int) {
-        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
-        guard workflow.nodes[nodeIndex].widgetsValues != nil,
-              index < workflow.nodes[nodeIndex].widgetsValues!.count else { return }
-        let widget = workflow.nodes[nodeIndex].widgetsValues![index]
-        if case .toggle = widget.widgetKind {
-            workflow.nodes[nodeIndex].widgetsValues![index] = .bool(!widget.boolValue)
-        }
-    }
-
-    /// 命中测试：判断点击位置是否在滑块区域，返回滑块信息
-    private func hitTestSlider(point: CGPoint) -> (nodeId: Int, index: Int)? {
-        for node in workflow.nodes {
-            let rect = CGRect(origin: node.position, size: node.nodeSize)
-            let headerHeight = min(30, rect.height * 0.4)
-            let widgetTop = rect.minY + headerHeight + 6
-            // 与drawNodes一致的动态边距计算
-            let baseLeftInset: CGFloat = 75
-            let baseRightInset: CGFloat = 85
-            let minWidgetWidth: CGFloat = 60
-            var leftInset = baseLeftInset
-            var rightInset = baseRightInset
-            if rect.width - leftInset - rightInset < minWidgetWidth {
-                let available = rect.width - minWidgetWidth
-                let totalInset = baseLeftInset + baseRightInset
-                let scale = min(1.0, available / totalInset)
-                leftInset = baseLeftInset * scale
-                rightInset = baseRightInset * scale
-            }
-            let widgetX = rect.minX + leftInset
-            let widgetWidth = rect.width - leftInset - rightInset
-            let labelWidth: CGFloat = 48
-            let numWidth: CGFloat = 48
-            let rowHeight: CGFloat = 22
-
-            guard let widgets = node.widgetsValues else { continue }
-            for (index, widget) in widgets.enumerated() {
-                guard case .number = widget.widgetKind else { continue }
-                let controlY = widgetTop + CGFloat(index) * rowHeight
-                let sliderX = widgetX + labelWidth + 4 + numWidth + 6
-                let sliderWidth = widgetWidth - labelWidth - 4 - numWidth - 6
-                guard sliderWidth > 20 else { continue }
-                // 扩大点击区域
-                let hitRect = CGRect(x: sliderX - 6, y: controlY, width: sliderWidth + 12, height: 16)
-                if hitRect.contains(point) {
-                    return (node.id, index)
-                }
-            }
-        }
-        return nil
-    }
-
-    /// 根据世界坐标X更新滑块数值（直接修改workflow，确保触发视图更新）
-    private func updateSliderValue(nodeId: Int, index: Int, worldX: CGFloat) {
-        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
-        guard workflow.nodes[nodeIndex].widgetsValues != nil,
-              index < workflow.nodes[nodeIndex].widgetsValues!.count else { return }
-        let node = workflow.nodes[nodeIndex]
-        let rect = CGRect(origin: node.position, size: node.nodeSize)
-        let headerHeight = min(30, rect.height * 0.4)
-        let widgetTop = rect.minY + headerHeight + 6
-        // 与drawNodes一致的动态边距计算
-        let baseLeftInset: CGFloat = 75
-        let baseRightInset: CGFloat = 85
-        let minWidgetWidth: CGFloat = 60
-        var leftInset = baseLeftInset
-        var rightInset = baseRightInset
-        if rect.width - leftInset - rightInset < minWidgetWidth {
-            let available = rect.width - minWidgetWidth
-            let totalInset = baseLeftInset + baseRightInset
-            let scale = min(1.0, available / totalInset)
-            leftInset = baseLeftInset * scale
-            rightInset = baseRightInset * scale
-        }
-        let widgetX = rect.minX + leftInset
-        let widgetWidth = rect.width - leftInset - rightInset
-        let labelWidth: CGFloat = 48
-        let numWidth: CGFloat = 48
-        let sliderX = widgetX + labelWidth + 4 + numWidth + 6
-        let sliderWidth = widgetWidth - labelWidth - 4 - numWidth - 6
-        guard sliderWidth > 0 else { return }
-
-        // 计算比例0-1
-        var ratio = (worldX - sliderX) / sliderWidth
-        ratio = max(0, min(1, ratio))
-        // 数值范围0-100，取一位小数
-        let newValue = Double(round(ratio * 1000) / 10)
-
-        let original = workflow.nodes[nodeIndex].widgetsValues![index]
-        // 直接修改数组元素，确保触发@Binding更新
-        switch original {
-        case .int:
-            workflow.nodes[nodeIndex].widgetsValues![index] = .int(Int(newValue))
-        case .double:
-            workflow.nodes[nodeIndex].widgetsValues![index] = .double(newValue)
-        default:
-            workflow.nodes[nodeIndex].widgetsValues![index] = .double(newValue)
-        }
-    }
-
-    /// 保存单参数编辑结果（直接修改workflow，确保触发视图更新）
-    private func saveEditedWidget(nodeId: Int, index: Int, text: String) {
-        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
-        guard workflow.nodes[nodeIndex].widgetsValues != nil,
-              index < workflow.nodes[nodeIndex].widgetsValues!.count else { return }
-
-        let original = workflow.nodes[nodeIndex].widgetsValues![index]
-        let newValue: WidgetValue
-        switch original {
-        case .int:
-            if let intValue = Int(text) {
-                newValue = .int(intValue)
-            } else if let doubleValue = Double(text) {
-                newValue = .double(doubleValue)
-            } else {
-                newValue = .string(text)
-            }
-        case .double:
-            if let doubleValue = Double(text) {
-                newValue = .double(doubleValue)
-            } else {
-                newValue = .string(text)
-            }
-        case .string:
-            newValue = .string(text)
-        case .bool:
-            newValue = .bool(text.lowercased() == "true" || text == "1" || text.lowercased() == "开")
-        case .null:
-            newValue = .string(text)
-        }
-        // 直接修改数组元素，确保触发@Binding更新
-        workflow.nodes[nodeIndex].widgetsValues![index] = newValue
-    }
-
     // MARK: - 选中节点的可交互控件层（直接在文本框内编辑）
 
     /// 选中节点的可交互控件视图（使用VStack相对布局，避免绝对定位导致的漂移）
@@ -857,17 +634,15 @@ struct WorkflowCanvasView: View {
         .onTapGesture { }
     }
 
-    /// 单个可交互控件（TextField/Toggle/Slider），get从workflow获取最新值
+    /// 单个可交互控件（TextField/Toggle/Slider），get从viewModel获取最新值
     private func editableWidgetControl(widget: WidgetValue, index: Int, nodeId: Int, controlWidth: CGFloat) -> some View {
         Group {
             switch widget.widgetKind {
             case .toggle:
                 Toggle("", isOn: Binding(
-                    get: { currentWidgetValue(nodeId: nodeId, index: index)?.boolValue ?? false },
+                    get: { viewModel.currentWidgetValue(nodeID: nodeId, index: index)?.boolValue ?? false },
                     set: { newValue in
-                        if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
-                            workflow.nodes[nodeIndex].widgetsValues?[index] = .bool(newValue)
-                        }
+                        viewModel.updateWidget(nodeID: nodeId, index: index, value: .bool(newValue))
                     }
                 ))
                 .labelsHidden()
@@ -877,18 +652,16 @@ struct WorkflowCanvasView: View {
                 HStack(spacing: 6) {
                     // 数字输入框
                     TextField("", text: Binding(
-                        get: { currentWidgetValue(nodeId: nodeId, index: index)?.displayString ?? "" },
+                        get: { viewModel.currentWidgetValue(nodeID: nodeId, index: index)?.displayString ?? "" },
                         set: { newValue in
-                            if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
-                                let original = workflow.nodes[nodeIndex].widgetsValues?[index]
-                                if case .int = original {
-                                    if let intValue = Int(newValue) {
-                                        workflow.nodes[nodeIndex].widgetsValues?[index] = .int(intValue)
-                                    }
-                                } else {
-                                    if let doubleValue = Double(newValue) {
-                                        workflow.nodes[nodeIndex].widgetsValues?[index] = .double(doubleValue)
-                                    }
+                            let original = viewModel.currentWidgetValue(nodeID: nodeId, index: index)
+                            if case .int = original {
+                                if let intValue = Int(newValue) {
+                                    viewModel.updateWidget(nodeID: nodeId, index: index, value: .int(intValue))
+                                }
+                            } else {
+                                if let doubleValue = Double(newValue) {
+                                    viewModel.updateWidget(nodeID: nodeId, index: index, value: .double(doubleValue))
                                 }
                             }
                         }
@@ -903,7 +676,7 @@ struct WorkflowCanvasView: View {
                     if controlWidth > 74 {
                         Slider(value: Binding(
                             get: {
-                                if let v = currentWidgetValue(nodeId: nodeId, index: index) {
+                                if let v = viewModel.currentWidgetValue(nodeID: nodeId, index: index) {
                                     switch v {
                                     case .int(let val): return Double(val)
                                     case .double(let val): return val
@@ -913,13 +686,11 @@ struct WorkflowCanvasView: View {
                                 return 0
                             },
                             set: { newValue in
-                                if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
-                                    let original = workflow.nodes[nodeIndex].widgetsValues?[index]
-                                    if case .int = original {
-                                        workflow.nodes[nodeIndex].widgetsValues?[index] = .int(Int(newValue))
-                                    } else {
-                                        workflow.nodes[nodeIndex].widgetsValues?[index] = .double(newValue)
-                                    }
+                                let original = viewModel.currentWidgetValue(nodeID: nodeId, index: index)
+                                if case .int = original {
+                                    viewModel.updateWidget(nodeID: nodeId, index: index, value: .int(Int(newValue)))
+                                } else {
+                                    viewModel.updateWidget(nodeID: nodeId, index: index, value: .double(newValue))
                                 }
                             }
                         ), in: 0...100)
@@ -929,11 +700,9 @@ struct WorkflowCanvasView: View {
 
             case .text:
                 TextField("", text: Binding(
-                    get: { currentWidgetValue(nodeId: nodeId, index: index)?.displayString ?? "" },
+                    get: { viewModel.currentWidgetValue(nodeID: nodeId, index: index)?.displayString ?? "" },
                     set: { newValue in
-                        if let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) {
-                            workflow.nodes[nodeIndex].widgetsValues?[index] = .string(newValue)
-                        }
+                        viewModel.updateWidget(nodeID: nodeId, index: index, value: .string(newValue))
                     }
                 ))
                 .textFieldStyle(.roundedBorder)
@@ -943,14 +712,6 @@ struct WorkflowCanvasView: View {
                 .truncationMode(.tail)
             }
         }
-    }
-
-    /// 从workflow获取当前最新的控件值（避免使用传入的widget副本导致显示旧值）
-    private func currentWidgetValue(nodeId: Int, index: Int) -> WidgetValue? {
-        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }),
-              let widgets = workflow.nodes[nodeIndex].widgetsValues,
-              index < widgets.count else { return nil }
-        return widgets[index]
     }
 }
 
