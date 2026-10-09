@@ -279,7 +279,7 @@ struct WorkflowCanvasView: View {
 
     // MARK: - 控件绘制
 
-    /// 绘制节点内部控件（只读展示，参数名与控件同一行显示，按类型渲染不同控件外观）
+    /// 绘制节点内部控件（只读展示，参数名与控件同一行显示，全部展示不折叠）
     private func drawWidgets(context: GraphicsContext, widgets: [WidgetValue], names: [String], in rect: CGRect) {
         let controlHeight: CGFloat = 16
         let rowSpacing: CGFloat = 6
@@ -301,17 +301,6 @@ struct WorkflowCanvasView: View {
                 neededControlHeight = max(controlHeight, ceil(textHeight) + 4)
             }
             let totalRowHeight = neededControlHeight + rowSpacing
-
-            guard currentY + totalRowHeight <= rect.maxY else {
-                if currentY < rect.maxY {
-                    let remaining = widgets.count - index
-                    let moreText = Text("… +\(remaining) 更多参数")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                    context.draw(moreText, in: CGRect(x: rect.minX, y: currentY, width: rect.width, height: 14))
-                }
-                break
-            }
 
             // 参数名标签（左侧，固定宽度，右对齐，与控件垂直居中）
             let rawName = index < names.count ? names[index] : "参数\(index + 1)"

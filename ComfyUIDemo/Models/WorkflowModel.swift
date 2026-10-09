@@ -102,10 +102,23 @@ struct NodeModel: Codable, Identifiable, Hashable {
         return CGPoint(x: pos[0], y: pos[1])
     }
 
-    /// 计算属性：节点尺寸
+    /// 计算属性：节点尺寸（高度根据控件数量自适应，确保所有参数完整展示）
     var nodeSize: CGSize {
         guard size.count >= 2 else { return CGSize(width: 200, height: 80) }
-        return CGSize(width: max(size[0], 80), height: max(size[1], 40))
+        let baseWidth = max(size[0], 80)
+        let baseHeight = max(size[1], 40)
+        let widgetCount = widgetsValues?.count ?? 0
+        guard widgetCount > 0 else {
+            return CGSize(width: baseWidth, height: baseHeight)
+        }
+        // 根据控件数量计算所需高度
+        let headerHeight: CGFloat = 30
+        let widgetTopPadding: CGFloat = 6
+        let widgetBottomPadding: CGFloat = 20
+        let rowHeight: CGFloat = 22 // controlHeight(16) + rowSpacing(6)
+        let neededHeight = headerHeight + widgetTopPadding + CGFloat(widgetCount) * rowHeight + widgetBottomPadding
+        let finalHeight = max(baseHeight, neededHeight)
+        return CGSize(width: baseWidth, height: finalHeight)
     }
 
     /// 节点显示标题：优先 title，其次 type
