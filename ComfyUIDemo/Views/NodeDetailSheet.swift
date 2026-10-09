@@ -65,8 +65,15 @@ struct NodeDetailSheet: View {
                             ForEach(Array(widgets.enumerated()), id: \.offset) { index, widget in
                                 let rawName = index < node.widgetNames.count ? node.widgetNames[index] : "参数\(index + 1)"
                                 let paramName = SlotLocalization.bilingual(for: rawName)
-                                editableWidgetRow(paramName: paramName, index: index, widget: widget, proxy: proxy)
-                                    .id(index)
+                                WidgetEditRow(
+                                    paramName: paramName,
+                                    workflow: $workflow,
+                                    nodeId: nodeId,
+                                    index: index,
+                                    widget: widget,
+                                    proxy: proxy
+                                )
+                                .id(index)
                             }
                         } else {
                             Text("无控件参数").foregroundColor(.secondary)
@@ -77,9 +84,19 @@ struct NodeDetailSheet: View {
         }
     }
 
-    /// 可编辑的参数行
-    @ViewBuilder
-    private func editableWidgetRow(paramName: String, index: Int, widget: WidgetValue, proxy: ScrollViewProxy) -> some View {
+    // MARK: - 插槽页
+    @Binding var workflow: WorkflowModel
+    let nodeId: Int
+    let index: Int
+    let widget: WidgetValue
+    let proxy: ScrollViewProxy
+
+    /// 编辑中的文本（独立状态，允许为空，不会被workflow还原）
+    @State private var editText: String = ""
+    /// 是否正在编辑
+    @State private var isEditing: Bool = false
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(paramName)
                 .font(.subheadline)
@@ -88,56 +105,79 @@ struct NodeDetailSheet: View {
             switch widget.widgetKind {
             case .toggle:
                 Toggle(isOn: Binding(
-                    get: { widget.boolValue },
-                    set: { newValue in updateWidget(index: index, value: .bool(newValue)) }
+                    get: { currentWidgetValue?.boolValue ?? false },
+                    set: { newValue in updateWidget(value: .bool(newValue)) }
                 )) {
-                    Text(widget.boolValue ? "开启" : "关闭")
+                    Text((currentWidgetValue?.boolValue ?? false) ? "开启" : "关闭")
                         .font(.body)
                 }
 
             case .number:
                 HStack {
-                    TextField("数值", text: Binding(
-                        get: { widget.displayString },
-                        set: { newValue in
+                    TextField("数值", text: $editText)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.decimalPad)
+                        .frame(width: 150)
+                        .onTapGesture {
+                            isEditing = true
+                            withAnimation { proxy.scrollTo(index, anchor: .center) }
+                        }
+                        .onChange(of: editText) { newValue in
+                            // 实时更新workflow（允许空字符串，保持编辑状态）
                             if let doubleValue = Double(newValue) {
-                                updateWidget(index: index, value: .double(doubleValue))
+                                updateWidget(value: .double(doubleValue))
+                            }
+                            // 空字符串或无效输入不更新workflow，但editText保持用户输入
+                        }
+                        .onSubmit {
+                            isEditing = false
+                            // 提交时如果为空，恢复为原值
+                            if editText.isEmpty {
+                                editText = currentWidgetValue?.displayString ?? ""
                             }
                         }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-                    .keyboardType(.decimalPad)
-                    .frame(width: 150)
-                    .onTapGesture {
-                        withAnimation { proxy.scrollTo(index, anchor: .center) }
-                    }
                     Spacer()
                     Text("数值").font(.caption).foregroundColor(.secondary)
                 }
 
             case .text:
-                TextField("文本", text: Binding(
-                    get: { widget.displayString },
-                    set: { newValue in updateWidget(index: index, value: .string(newValue)) }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .onTapGesture {
-                    withAnimation { proxy.scrollTo(index, anchor: .center) }
-                }
+                TextField("文本", text: $editText)
+                    .textFieldStyle(.roundedBorder)
+                    .onTapGesture {
+                        isEditing = true
+                        withAnimation { proxy.scrollTo(index, anchor: .center) }
+                    }
+                    .onChange(of: editText) { newValue in
+                        updateWidget(value: .string(newValue))
+                    }
+                    .onSubmit {
+                        isEditing = false
+                    }
             }
         }
         .padding(.vertical, 4)
+        .onAppear {
+            // 初始化编辑文本为当前值
+            editText = currentWidgetValue?.displayString ?? widget.displayString
+        }
     }
 
-    /// 更新指定索引的控件值（确保值类型正确写回）
-    private func updateWidget(index: Int, value: WidgetValue) {
-        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }) else { return }
-        var node = workflow.nodes[nodeIndex]
-        guard var widgets = node.widgetsValues, index < widgets.count else { return }
-        widgets[index] = value
-        node.widgetsValues = widgets
-        workflow.nodes[nodeIndex] = node
+    /// 从workflow获取当前最新的控件值
+    private var currentWidgetValue: WidgetValue? {
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }),
+              let widgets = workflow.nodes[nodeIndex].widgetsValues,
+              index < widgets.count else { return nil }
+        return widgets[index]
     }
+
+    /// 更新控件值（直接修改workflow，确保触发视图更新）
+    private func updateWidget(value: WidgetValue) {
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }),
+              workflow.nodes[nodeIndex].widgetsValues != nil,
+              index < workflow.nodes[nodeIndex].widgetsValues!.count else { return }
+        workflow.nodes[nodeIndex].widgetsValues![index] = value
+    }
+}
 
     // MARK: - 插槽页
 
@@ -249,5 +289,104 @@ struct NodeDetailSheet: View {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(node) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+}
+
+// MARK: - 独立的参数编辑行（拥有自己的@State，解决编辑时被还原的问题）
+
+/// 独立的参数编辑行视图
+struct WidgetEditRow: View {
+    let paramName: String
+    @Binding var workflow: WorkflowModel
+    let nodeId: Int
+    let index: Int
+    let widget: WidgetValue
+    let proxy: ScrollViewProxy
+
+    /// 编辑中的文本（独立状态，允许为空，不会被workflow还原）
+    @State private var editText: String = ""
+    /// 是否正在编辑
+    @State private var isEditing: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(paramName)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            switch widget.widgetKind {
+            case .toggle:
+                Toggle(isOn: Binding(
+                    get: { currentWidgetValue?.boolValue ?? false },
+                    set: { newValue in updateWidget(value: .bool(newValue)) }
+                )) {
+                    Text((currentWidgetValue?.boolValue ?? false) ? "开启" : "关闭")
+                        .font(.body)
+                }
+
+            case .number:
+                HStack {
+                    TextField("数值", text: $editText)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.decimalPad)
+                        .frame(width: 150)
+                        .onTapGesture {
+                            isEditing = true
+                            withAnimation { proxy.scrollTo(index, anchor: .center) }
+                        }
+                        .onChange(of: editText) { newValue in
+                            // 实时更新workflow（允许空字符串，保持编辑状态）
+                            if let doubleValue = Double(newValue) {
+                                updateWidget(value: .double(doubleValue))
+                            }
+                            // 空字符串或无效输入不更新workflow，但editText保持用户输入
+                        }
+                        .onSubmit {
+                            isEditing = false
+                            // 提交时如果为空，恢复为原值
+                            if editText.isEmpty {
+                                editText = currentWidgetValue?.displayString ?? ""
+                            }
+                        }
+                    Spacer()
+                    Text("数值").font(.caption).foregroundColor(.secondary)
+                }
+
+            case .text:
+                TextField("文本", text: $editText)
+                    .textFieldStyle(.roundedBorder)
+                    .onTapGesture {
+                        isEditing = true
+                        withAnimation { proxy.scrollTo(index, anchor: .center) }
+                    }
+                    .onChange(of: editText) { newValue in
+                        updateWidget(value: .string(newValue))
+                    }
+                    .onSubmit {
+                        isEditing = false
+                    }
+            }
+        }
+        .padding(.vertical, 4)
+        .onAppear {
+            // 初始化编辑文本为当前值
+            editText = currentWidgetValue?.displayString ?? widget.displayString
+        }
+    }
+
+    /// 从workflow获取当前最新的控件值
+    private var currentWidgetValue: WidgetValue? {
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }),
+              let widgets = workflow.nodes[nodeIndex].widgetsValues,
+              index < widgets.count else { return nil }
+        return widgets[index]
+    }
+
+    /// 更新控件值（直接修改workflow，确保触发视图更新）
+    private func updateWidget(value: WidgetValue) {
+        guard let nodeIndex = workflow.nodes.firstIndex(where: { $0.id == nodeId }),
+              workflow.nodes[nodeIndex].widgetsValues != nil,
+              index < workflow.nodes[nodeIndex].widgetsValues!.count else { return }
+        workflow.nodes[nodeIndex].widgetsValues![index] = value
     }
 }
