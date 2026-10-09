@@ -62,6 +62,21 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .padding(.horizontal, 32)
 
+                    // 新增空白工作流按钮
+                    Button {
+                        createBlankWorkflow()
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.square.dashed")
+                            Text("新增空白工作流")
+                                .fontWeight(.medium)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.horizontal, 32)
+
                     // 打开上次工作流按钮
                     if hasLastWorkflow {
                         Button {
@@ -285,6 +300,15 @@ struct ContentView: View {
             return
         }
         workflow = model
+        errorMessage = nil
+        showCanvasPage = true
+    }
+
+    // MARK: - 创建空白工作流
+
+    private func createBlankWorkflow() {
+        let blank = WorkflowModel(nodes: [], links: [], groups: [])
+        workflow = blank
         errorMessage = nil
         showCanvasPage = true
     }

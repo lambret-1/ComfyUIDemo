@@ -23,6 +23,13 @@ struct WorkflowModel: Codable {
         case nodes, links, groups
     }
 
+    /// 成员初始化器（用于创建空白工作流）
+    init(nodes: [NodeModel] = [], links: [LinkModel] = [], groups: [GroupModel] = []) {
+        self.nodes = nodes
+        self.links = links
+        self.groups = groups
+    }
+
     /// 自定义解码：兼容 ComfyUI 原生 links 为嵌套数组的格式，容错解析
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
