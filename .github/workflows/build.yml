@@ -19,6 +19,12 @@ jobs:
       - name: 生成 Xcode 工程
         run: xcodegen generate
 
+      - name: 降级项目格式兼容 Xcode 15.4
+        run: |
+          # XcodeGen 新版默认生成 objectVersion=77（Xcode 16格式），降级为 56（Xcode 14+ 兼容）
+          sed -i '' 's/objectVersion = 77;/objectVersion = 56;/g' ComfyUIDemo.xcodeproj/project.pbxproj
+          grep "objectVersion" ComfyUIDemo.xcodeproj/project.pbxproj
+
       - name: 构建归档
         run: |
           xcodebuild archive \
