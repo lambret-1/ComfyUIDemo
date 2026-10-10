@@ -122,40 +122,40 @@ struct WorkflowCanvasView: View {
                     drawNodes(context: context, highlightedId: highlightedNodeId)
                 }
                 .gesture(
-                    SimultaneousGesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                handleDragChanged(value)
-                            }
-                            .onEnded { value in
-                                handleDragEnded(value)
-                            },
-                        MagnificationGesture()
-                            .onChanged { value in
-                                let newZoom = CanvasMath.clamp(
-                                    lastZoom * value.magnification,
-                                    min: CanvasMath.minZoom,
-                                    max: CanvasMath.maxZoom
-                                )
-                                // 以双指中心为锚点缩放：保持锚点在屏幕上的位置不变
-                                let anchor = value.location
-                                // 锚点对应的世界坐标（基于当前 offset 和 zoom）
-                                let worldX = (anchor.x - offset.x) / zoom
-                                let worldY = (anchor.y - offset.y) / zoom
-                                // 调整 offset 使锚点屏幕位置不变
-                                offset = CGPoint(
-                                    x: anchor.x - worldX * newZoom,
-                                    y: anchor.y - worldY * newZoom
-                                )
-                                zoom = newZoom
-                                isInteracting = true
-                            }
-                            .onEnded { _ in
-                                lastZoom = zoom
-                                lastOffset = offset
-                                isInteracting = false
-                            }
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            handleDragChanged(value)
+                        }
+                        .onEnded { value in
+                            handleDragEnded(value)
+                        }
+                )
+                // 双指缩放手势（UIKit 封装，可获取双指中心点）
+                .overlay(
+                    PinchGestureView(
+                        onPinchChanged: { scale, center in
+                            let newZoom = CanvasMath.clamp(
+                                lastZoom * scale,
+                                min: CanvasMath.minZoom,
+                                max: CanvasMath.maxZoom
+                            )
+                            // 以双指中心为锚点：保持锚点在屏幕上的位置不变
+                            let worldX = (center.x - offset.x) / zoom
+                            let worldY = (center.y - offset.y) / zoom
+                            offset = CGPoint(
+                                x: center.x - worldX * newZoom,
+                                y: center.y - worldY * newZoom
+                            )
+                            zoom = newZoom
+                            isInteracting = true
+                        },
+                        onPinchEnded: {
+                            lastZoom = zoom
+                            lastOffset = offset
+                            isInteracting = false
+                        }
                     )
+                    .allowsHitTesting(true)
                 )
                 .sheet(item: Binding(
                     get: { selectedNodeId.map { NodeIDWrapper(id: $0) } },
