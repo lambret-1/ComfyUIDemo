@@ -120,11 +120,36 @@ extension WorkflowCanvasView {
         return nearest
     }
 
+    /// 查找最近的输出插槽（用于从输入开始连线时的自动吸附）
+    func findNearestOutputSlot(point: CGPoint, maxDistance: CGFloat) -> (nodeId: Int, slotIndex: Int)? {
+        var nearest: (nodeId: Int, slotIndex: Int)?
+        var nearestDistance = maxDistance
+        for node in workflow.nodes {
+            guard let outputs = node.outputs, !outputs.isEmpty else { continue }
+            for (index, _) in outputs.enumerated() {
+                let slotPos = getSlotPosition(node: node, slotIndex: index, isOutput: true)
+                let distance = hypot(point.x - slotPos.x, point.y - slotPos.y)
+                if distance < nearestDistance {
+                    nearestDistance = distance
+                    nearest = (node.id, index)
+                }
+            }
+        }
+        return nearest
+    }
+
     // MARK: - 创建连线
 
     /// 创建连线：从源节点输出插槽到目标节点输入插槽
+    /// 若目标输入插槽已有连线，先删除旧连线再创建新连线（ComfyUI 输入插槽仅允许一条连线），
+    /// 这样从输出插槽拖到已被占用的输入插槽即可实现连线变更。
     func createLink(from: (nodeId: Int, slotIndex: Int), to: (nodeId: Int, slotIndex: Int)) {
         guard from.nodeId != to.nodeId else { return }
+
+        // 删除目标输入插槽已有的旧连线（输入插槽仅允许一条连线，新连线替换旧连线）
+        workflow.links.removeAll { link in
+            link.targetId == to.nodeId && link.targetSlot == to.slotIndex
+        }
 
         let newLinkId = (workflow.links.map { $0.id }.max() ?? 0) + 1
         let sourceType = workflow.nodeMap[from.nodeId]?.outputs?[safe: from.slotIndex]?.type

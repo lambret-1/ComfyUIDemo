@@ -29,14 +29,18 @@ struct WorkflowCanvasView: View {
     @State var showWidgetEditor: Bool = false
     /// 连线状态：是否正在连线
     @State var isConnecting: Bool = false
-    /// 连线起点（源节点ID + 输出插槽索引）
+    /// 连线起点（源节点ID + 插槽索引，可能是输出插槽或输入插槽）
     @State var connectingFrom: (nodeId: Int, slotIndex: Int)?
+    /// 连线起点是否为输入插槽（true=从输入拖到输出，false=从输出拖到输入）
+    @State var connectingFromInput: Bool = false
     /// 连线当前终点（手指位置，世界坐标）
     @State var connectingTo: CGPoint?
     /// 连线起点的世界坐标（用于绘制预览线）
     @State var connectingFromPoint: CGPoint?
-    /// 当前被吸附的输入插槽（用于高亮显示和自动吸附）
+    /// 当前被吸附的输入插槽（用于从输出开始连线时高亮显示和自动吸附）
     @State var snappedInputSlot: (nodeId: Int, slotIndex: Int)?
+    /// 当前被吸附的输出插槽（用于从输入开始连线时高亮显示和自动吸附）
+    @State var snappedOutputSlot: (nodeId: Int, slotIndex: Int)?
     /// 正在拖动的节点ID（节点自由移动）
     @State var draggingNodeId: Int?
     /// 拖动开始时节点的位置（世界坐标）
@@ -102,20 +106,37 @@ struct WorkflowCanvasView: View {
                     // 层级2.5：连线预览（正在连线时）
                     if isConnecting, let fromPoint = connectingFromPoint, let toPoint = connectingTo {
                         var actualToPoint = toPoint
-                        if let snapped = snappedInputSlot,
-                           let snappedNode = workflow.nodeMap[snapped.nodeId] {
-                            actualToPoint = cachedSlotPosition(node: snappedNode,
-                                                               slotIndex: snapped.slotIndex,
-                                                               isOutput: false, context: context)
-                            var highlightCircle = Path()
-                            highlightCircle.addEllipse(in: CGRect(x: actualToPoint.x - 10, y: actualToPoint.y - 10, width: 20, height: 20))
-                            context.fill(highlightCircle, with: .color(.green.opacity(0.5)))
+                        var hasSnapped = false
+                        if connectingFromInput {
+                            // 从输入开始连线：吸附输出插槽
+                            if let snapped = snappedOutputSlot,
+                               let snappedNode = workflow.nodeMap[snapped.nodeId] {
+                                actualToPoint = cachedSlotPosition(node: snappedNode,
+                                                                   slotIndex: snapped.slotIndex,
+                                                                   isOutput: true, context: context)
+                                hasSnapped = true
+                                var highlightCircle = Path()
+                                highlightCircle.addEllipse(in: CGRect(x: actualToPoint.x - 10, y: actualToPoint.y - 10, width: 20, height: 20))
+                                context.fill(highlightCircle, with: .color(.green.opacity(0.5)))
+                            }
+                        } else {
+                            // 从输出开始连线：吸附输入插槽
+                            if let snapped = snappedInputSlot,
+                               let snappedNode = workflow.nodeMap[snapped.nodeId] {
+                                actualToPoint = cachedSlotPosition(node: snappedNode,
+                                                                   slotIndex: snapped.slotIndex,
+                                                                   isOutput: false, context: context)
+                                hasSnapped = true
+                                var highlightCircle = Path()
+                                highlightCircle.addEllipse(in: CGRect(x: actualToPoint.x - 10, y: actualToPoint.y - 10, width: 20, height: 20))
+                                context.fill(highlightCircle, with: .color(.green.opacity(0.5)))
+                            }
                         }
                         let previewPath = bezierLinkPath(from: fromPoint, to: actualToPoint)
                         context.stroke(previewPath, with: .color(.blue.opacity(0.7)), style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
                         var endCircle = Path()
                         endCircle.addEllipse(in: CGRect(x: actualToPoint.x - 6, y: actualToPoint.y - 6, width: 12, height: 12))
-                        context.fill(endCircle, with: .color(snappedInputSlot != nil ? .green : .blue))
+                        context.fill(endCircle, with: .color(hasSnapped ? .green : .blue))
                     }
 
                     // 层级3：节点

@@ -34,7 +34,15 @@ extension WorkflowCanvasView {
         // 正在连线时，更新预览线终点并检测吸附
         if isConnecting {
             connectingTo = currentPoint
-            snappedInputSlot = findNearestInputSlot(point: currentPoint, maxDistance: 40)
+            if connectingFromInput {
+                // 从输入开始连线：吸附输出插槽
+                snappedOutputSlot = findNearestOutputSlot(point: currentPoint, maxDistance: 40)
+                snappedInputSlot = nil
+            } else {
+                // 从输出开始连线：吸附输入插槽
+                snappedInputSlot = findNearestInputSlot(point: currentPoint, maxDistance: 40)
+                snappedOutputSlot = nil
+            }
             return
         }
 
@@ -59,21 +67,43 @@ extension WorkflowCanvasView {
 
         // 首次移动超阈值：一次性锁定拖动模式
         if dragMode == .none {
-            // 检查是否起点在输出插槽（开始连线）
-            if hitTestOutputSlot(point: startPoint) != nil {
-                if let outputSlot = hitTestOutputSlot(point: startPoint) {
-                    isConnecting = true
-                    connectingFrom = outputSlot
-                    if let node = workflow.nodeMap[outputSlot.nodeId] {
-                        connectingFromPoint = getSlotPosition(
-                            node: node,
-                            slotIndex: outputSlot.slotIndex,
-                            isOutput: true
-                        )
-                    }
-                    connectingTo = currentPoint
-                    snappedInputSlot = nil
+            // 检查是否起点在输出插槽（从输出开始连线：输出→输入）
+            if let outputSlot = hitTestOutputSlot(point: startPoint) {
+                isConnecting = true
+                connectingFrom = outputSlot
+                connectingFromInput = false
+                if let node = workflow.nodeMap[outputSlot.nodeId] {
+                    connectingFromPoint = getSlotPosition(
+                        node: node,
+                        slotIndex: outputSlot.slotIndex,
+                        isOutput: true
+                    )
                 }
+                connectingTo = currentPoint
+                snappedInputSlot = nil
+                snappedOutputSlot = nil
+                return
+            }
+
+            // 检查是否起点在输入插槽（从输入开始连线：输入→输出，用于变更连线）
+            if let inputSlot = hitTestInputSlot(point: startPoint) {
+                isConnecting = true
+                connectingFrom = inputSlot
+                connectingFromInput = true
+                // 从输入插槽开始连线时，先删除该输入插槽已有的旧连线（实现连线变更）
+                workflow.links.removeAll { link in
+                    link.targetId == inputSlot.nodeId && link.targetSlot == inputSlot.slotIndex
+                }
+                if let node = workflow.nodeMap[inputSlot.nodeId] {
+                    connectingFromPoint = getSlotPosition(
+                        node: node,
+                        slotIndex: inputSlot.slotIndex,
+                        isOutput: false
+                    )
+                }
+                connectingTo = currentPoint
+                snappedInputSlot = nil
+                snappedOutputSlot = nil
                 return
             }
 
@@ -89,7 +119,7 @@ extension WorkflowCanvasView {
                 // 起点在滑块区域 且 水平拖动为主 → 滑块调值模式
                 dragMode = .slider
             } else {
-                // 起点不在标题栏/滑块 → 画布平移模式
+                // 起点不在标题栏/滑块/插槽 → 画布平移模式
                 dragMode = .canvas
             }
         }
@@ -122,15 +152,26 @@ extension WorkflowCanvasView {
             let currentWorldX = (value.location.x - offset.x) / zoom
             let currentWorldY = (value.location.y - offset.y) / zoom
             let endPoint = CGPoint(x: currentWorldX, y: currentWorldY)
-            if let targetSlot = snappedInputSlot ?? hitTestInputSlot(point: endPoint),
-               let from = connectingFrom {
-                createLink(from: from, to: targetSlot)
+            if let from = connectingFrom {
+                if connectingFromInput {
+                    // 从输入开始连线：命中输出插槽时创建连线（输出→输入）
+                    if let targetOutput = snappedOutputSlot ?? hitTestOutputSlot(point: endPoint) {
+                        createLink(from: targetOutput, to: from)
+                    }
+                } else {
+                    // 从输出开始连线：命中输入插槽时创建连线（输出→输入）
+                    if let targetInput = snappedInputSlot ?? hitTestInputSlot(point: endPoint) {
+                        createLink(from: from, to: targetInput)
+                    }
+                }
             }
             isConnecting = false
             connectingFrom = nil
+            connectingFromInput = false
             connectingFromPoint = nil
             connectingTo = nil
             snappedInputSlot = nil
+            snappedOutputSlot = nil
         } else if let nodeId = draggingNodeId, let startPos = dragStartNodePos {
             // 拖动结束：将 draggingOffset 提交到节点实际位置
             let finalPos = CGPoint(x: startPos.x + draggingOffset.width,
