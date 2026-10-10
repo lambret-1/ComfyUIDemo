@@ -132,14 +132,28 @@ struct WorkflowCanvasView: View {
                             },
                         MagnificationGesture()
                             .onChanged { value in
-                                zoom = CanvasMath.clamp(
-                                    lastZoom * value,
+                                let newZoom = CanvasMath.clamp(
+                                    lastZoom * value.magnification,
                                     min: CanvasMath.minZoom,
                                     max: CanvasMath.maxZoom
                                 )
+                                // 以双指中心为锚点缩放：保持锚点在屏幕上的位置不变
+                                let anchor = value.location
+                                // 锚点对应的世界坐标（基于当前 offset 和 zoom）
+                                let worldX = (anchor.x - offset.x) / zoom
+                                let worldY = (anchor.y - offset.y) / zoom
+                                // 调整 offset 使锚点屏幕位置不变
+                                offset = CGPoint(
+                                    x: anchor.x - worldX * newZoom,
+                                    y: anchor.y - worldY * newZoom
+                                )
+                                zoom = newZoom
+                                isInteracting = true
                             }
                             .onEnded { _ in
                                 lastZoom = zoom
+                                lastOffset = offset
+                                isInteracting = false
                             }
                     )
                 )
