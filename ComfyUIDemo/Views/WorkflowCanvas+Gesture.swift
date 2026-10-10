@@ -8,6 +8,8 @@ extension WorkflowCanvasView {
     /// 核心机制：首次移动超3pt时根据起点+方向一次性锁定 dragMode，后续帧不再重新判断，
     /// 避免滑块命中区域拦截节点拖动、以及每帧切换意图导致的抖动。
     func handleDragChanged(_ value: DragGesture.Value) {
+        // 双指缩放中忽略单指拖动，避免缩放与平移冲突
+        guard !isPinching else { return }
         // 首次触发时记录起点，重置移动标记和拖动模式
         if gestureStartLocation == nil {
             gestureStartLocation = value.location
@@ -115,6 +117,8 @@ extension WorkflowCanvasView {
 
     /// 拖动手势结束：收尾连线/节点拖动/画布平移；若未移动则视为点击
     func handleDragEnded(_ value: DragGesture.Value) {
+        // 双指缩放中忽略拖动结束，避免异常收尾
+        guard !isPinching else { return }
         // 退出交互降级渲染
         isInteracting = false
 

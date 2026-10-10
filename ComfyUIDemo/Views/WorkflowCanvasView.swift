@@ -53,6 +53,17 @@ struct WorkflowCanvasView: View {
     /// 节点渲染数据缓存：预计算尺寸、插槽位置、截断文本，避免每帧重复计算
     @State var renderCache: [Int: NodeRenderData] = [:]
 
+    // MARK: - 双指缩放状态
+
+    /// 是否正在双指缩放（用于屏蔽单指拖动避免冲突）
+    @State var isPinching: Bool = false
+    /// 缩放开始时的 zoom（用于基于初始状态计算，避免误差累积）
+    @State var pinchStartZoom: CGFloat = 1.0
+    /// 缩放开始时的 offset
+    @State var pinchStartOffset: CGPoint = .zero
+    /// 缩放开始时的双指中心点
+    @State var pinchStartCenter: CGPoint = .zero
+
     // MARK: - 手势区分状态（点击 vs 拖动）
     /// 本次手势是否真正移动过（用于区分点击与拖动）
     @State var gestureDidMove: Bool = false
@@ -134,27 +145,35 @@ struct WorkflowCanvasView: View {
                 .overlay(
                     PinchGestureView(
                         onPinchChanged: { scale, center in
+                            // 首次回调记录初始状态，后续基于初始状态计算避免误差累积
+                            if !isPinching {
+                                isPinching = true
+                                pinchStartZoom = zoom
+                                pinchStartOffset = offset
+                                pinchStartCenter = center
+                            }
                             let newZoom = CanvasMath.clamp(
-                                lastZoom * scale,
+                                pinchStartZoom * scale,
                                 min: CanvasMath.minZoom,
                                 max: CanvasMath.maxZoom
                             )
-                            // 以双指中心为锚点：保持锚点在屏幕上的位置不变
-                            let worldX = (center.x - offset.x) / zoom
-                            let worldY = (center.y - offset.y) / zoom
+                            // 基于初始锚点世界坐标保持不变，同时跟随双指中心移动
+                            // 公式：newOffset = center - (startCenter - startOffset) * scale
                             offset = CGPoint(
-                                x: center.x - worldX * newZoom,
-                                y: center.y - worldY * newZoom
+                                x: center.x - (pinchStartCenter.x - pinchStartOffset.x) * scale,
+                                y: center.y - (pinchStartCenter.y - pinchStartOffset.y) * scale
                             )
                             zoom = newZoom
                             isInteracting = true
                         },
                         onPinchEnded: {
+                            isPinching = false
                             lastZoom = zoom
                             lastOffset = offset
                             isInteracting = false
                         }
                     )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(true)
                 )
                 .sheet(item: Binding(
